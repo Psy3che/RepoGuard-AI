@@ -176,7 +176,36 @@ GitHub Check / Dashboard 风险提示：
 本身**不会自动合并或拒绝合并 PR**。不使用 GitHub Issues Write 权限，所以目前的
 风险“标签”以 Check 名称/状态和 Dashboard 徽章呈现，而不是自动写入 GitHub Label。
 
-## 6. 运行测试
+## 6. 屏幕中央的 PR 风险弹窗（黑客松演示）
+
+最新 Dashboard 在检测到选定仓库中有**新的 PR 审查任务**后，会自动在屏幕
+正中央显示一个较大的风险弹窗（约 940px 宽）。GitHub `pull_request.opened` 或
+`synchronize` Webhook 必须能够投递到正在运行的 FastAPI，才能在创建/更新 PR
+时真正自动触发。DeepSeek 是异步的，**提交 PR 的瞬间不能保证得出风险等级**，
+所以先显示 `ANALYSIS RUNNING`，完成后刷新为对应的风险结论。
+
+浏览器无法通过 GitHub App 向 GitHub.com 网页直接插入弹窗：该弹窗仅显示在
+**保持打开并选中该仓库的 RepoGuard Dashboard**。GitHub PR 页面会显示
+RepoGuard AI / Risk Scan 的 Checks 状态。Dashboard 通过约 3.5 秒一次的轮询
+获取更新，属于接近实时的提示而不是 WebSocket 推送。
+
+**两条真实 GitHub PR 样例：**
+- 低风险候选：`Psy3che/RepoGuard-Demo#2`，只调整 `src/formatters.py` 的
+  docstring，功能逻辑不变；模型实际等级仍以运行结果为准。
+- 高风险候选：`Psy3che/RepoGuard-Demo#1`，将删除权限从 admin 扩大至
+  admin + viewer，模型应识别潜在权限退化；必须人工验证。
+
+**弹窗演示预览：** Dashboard → 选择 `Psy3che/RepoGuard-Demo` →
+`Pull requests` → `Preview Low Risk` 或 `Preview High Risk`。预览有
+`DEMO PREVIEW` 标记，采用固定的**模拟报告**，**不是实际 DeepSeek 的分析结论**。
+
+**真实测试：** 保持 Dashboard 和后端运行，在 GitHub 对打开的 PR 分支继续提交
+代码；如果 Webhook 已经配置和启用，Dashboard 识别到新审查就会弹窗。
+如果 Webhook 尚未就绪，点击 PR 行的 `Analyze PR` 手动排队亦会马上显示分析中，
+再自动更新成真实报告。弹窗里的低风险结论只能说明“已检查范围内未发现阻断项”，
+不能保证代码正确性或批准合并。
+
+## 7. 运行测试
 
 ```bash
 pytest -q
@@ -184,7 +213,7 @@ pytest -q
 
 测试使用模拟 Webhook/DeepSeek，不会调用真实 API，也不会产生 DeepSeek 费用。
 
-## 7. 风险评估解释
+## 8. 风险评估解释
 
 - GitHub PR 只发送经筛选/脱敏、长度受限的 patch 摘要和仓库代码片段到 DeepSeek。
 - 文件重要性规则是启发式，模型推荐的关键模块会标记 `AI_SUGGESTED`。
@@ -197,7 +226,7 @@ pytest -q
 - FastAPI `BackgroundTasks` 仅适合演示，本地重启会丢失未完成任务。生产环境请换成独立任务队列并设置重试/死信机制。
 - 正式用于私有仓库前，需要进一步完善敏感信息检测、组织策略、数据保留和用户授权；正则脱敏无法确保没有任何秘密信息流入第三方模型。
 
-## 8. 代码结构
+## 9. 代码结构
 
 ```text
 backend/
@@ -212,7 +241,7 @@ tests/
 examples/
 ```
 
-## 9. 官方接口参考
+## 10. 官方接口参考
 
 - DeepSeek API: https://api-docs.deepseek.com/en/
 - DeepSeek JSON Output: https://api-docs.deepseek.com/guides/json_mode/
