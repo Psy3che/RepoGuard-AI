@@ -186,6 +186,12 @@ def _review(row: dict, ids: dict[str, str]) -> dict:
         "dependent_files": (report.get("dependent_files") or [])[:30],
         "important_touched_files": (report.get("important_touched_files") or [])[:20],
         "verification": report.get("verification") or {},
+        "ai_review": report.get("ai_review") or {},
+        "review_coverage": {
+            "diff_complete": bool((report.get("coverage") or {}).get("diff_complete")),
+            "semantic_coverage": str((report.get("coverage") or {}).get("semantic_coverage") or "UNKNOWN"),
+            "note": str((report.get("coverage") or {}).get("note") or "")[:350],
+        },
         "summary": report.get("summary") or (
             "Analysis running" if row["status"] in ("PENDING", "RUNNING") else
             "No completed report. Review status: " + row["status"]
