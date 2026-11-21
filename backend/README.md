@@ -205,7 +205,45 @@ RepoGuard AI / Risk Scan 的 Checks 状态。Dashboard 通过约 3.5 秒一次�
 再自动更新成真实报告。弹窗里的低风险结论只能说明“已检查范围内未发现阻断项”，
 不能保证代码正确性或批准合并。
 
-## 7. 运行测试
+## 7. DeepSeek 风险等级与 UNKNOWN 排查
+
+RepoGuard 的 PR 语义分析实际通过 `backend/analyzer.py:ai_json()` 使用本机
+`DEEPSEEK_API_KEY`，调用 `https://api.deepseek.com/chat/completions`；
+模型名来自 `DEEPSEEK_MODEL`。**不要把 API key 放到 GitHub、截图或终端输出中**。
+
+为了区分“代码修改风险”和“未运行测试”，最新提示规则允许 DeepSeek 在已收到
+完整 PR diff、只变动 Python docstring 或说明文档时返回 **LOW**（仅表示在已检查
+范围内未发现阻断项，不能保证无错误）。权限扩大等安全问题可以返回 **HIGH**。
+如果文件变化缺失、仓库地图不可用等，服务端仍会保守升级为 UNKNOWN。
+
+最新报告在 `ai_review` 中保存：
+- `provider` / `model` / `status`：实际调用成功的 DeepSeek 模型身份
+- `model_risk_level`：DeepSeek 原始风险标签
+- `final_risk_level`：后端覆盖范围/关键模块保护规则后的风险等级
+- `adjustments`：如 LOW 被降为 UNKNOWN 的原因
+
+Dashboard 的居中风险弹窗会展示这些信息。旧报告不会自动修改：选择测试仓库
+`Psy3che/RepoGuard-Demo` → Pull requests → 对 #2 和 #1 分别点击
+`Re-analyze PR`，才能看到新版 Prompt 的真实 DeepSeek 结论。
+
+Mac 本地验证配置是否加载（不打印密钥）：
+
+```bash
+cd ~/留学/RepoGuard-AI/backend
+source .venv/bin/activate
+python - <<'PY'
+from backend.config import settings
+print("DeepSeek API key configured:", bool(settings.deepseek_api_key))
+print("DeepSeek model:", settings.deepseek_model)
+PY
+```
+
+如结果仍是 UNKNOWN，在 Dashboard 弹窗查看 **DeepSeek risk**、
+**Final risk** 和 **PR diff**。前两者不同说明后端规则调整了等级；
+两者都 UNKNOWN 说明 DeepSeek 本身未给出确定判断。若缺少来源信息，
+说明使用的是旧报告，须重新分析。
+
+## 8. 运行测试
 
 ```bash
 pytest -q
@@ -213,7 +251,7 @@ pytest -q
 
 测试使用模拟 Webhook/DeepSeek，不会调用真实 API，也不会产生 DeepSeek 费用。
 
-## 8. 风险评估解释
+## 9. 风险评估解释
 
 - GitHub PR 只发送经筛选/脱敏、长度受限的 patch 摘要和仓库代码片段到 DeepSeek。
 - 文件重要性规则是启发式，模型推荐的关键模块会标记 `AI_SUGGESTED`。
@@ -226,7 +264,7 @@ pytest -q
 - FastAPI `BackgroundTasks` 仅适合演示，本地重启会丢失未完成任务。生产环境请换成独立任务队列并设置重试/死信机制。
 - 正式用于私有仓库前，需要进一步完善敏感信息检测、组织策略、数据保留和用户授权；正则脱敏无法确保没有任何秘密信息流入第三方模型。
 
-## 9. 代码结构
+## 10. 代码结构
 
 ```text
 backend/
@@ -241,7 +279,7 @@ tests/
 examples/
 ```
 
-## 10. 官方接口参考
+## 11. 官方接口参考
 
 - DeepSeek API: https://api-docs.deepseek.com/en/
 - DeepSeek JSON Output: https://api-docs.deepseek.com/guides/json_mode/
