@@ -1,6 +1,7 @@
 """Small SQLite persistence layer: survives local restarts for demo reliability."""
 import json
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from threading import RLock
 from backend.config import settings
@@ -39,7 +40,24 @@ def init_db():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS repository_scans (
+            id TEXT PRIMARY KEY,
+            repo TEXT NOT NULL,
+            base_sha TEXT NOT NULL,
+            status TEXT NOT NULL,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS repo_scan_by_repo
+          ON repository_scans (repo, created_at DESC);
         """)
+        # In-process background tasks do not survive a server restart.
+        conn.execute(
+            "UPDATE repository_scans SET status='FAILED', error='InterruptedByRestart', "
+            "updated_at=? WHERE status IN ('PENDING','RUNNING')",
+            (now(),),
+        )
 
 
 def now():
@@ -115,3 +133,43 @@ def list_reviews(repo: str | None, limit: int = 30):
                 "SELECT * FROM reviews ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
     return [_serialize(x) for x in rows]
+
+
+
+def claim_scan(repo: str, base_sha: str) -> tuple[dict, bool]:
+    """Atomically reuse an active scan, or create one job for this repository."""
+    with _LOCK, _db() as conn:
+        active = conn.execute(
+            "SELECT * FROM repository_scans WHERE repo=? AND status IN ('PENDING','RUNNING') "
+            "ORDER BY created_at DESC LIMIT 1", (repo,)
+        ).fetchone()
+        if active is not None:
+            return dict(active), False
+        scan_id = str(uuid.uuid4())
+        created = now()
+        conn.execute(
+            "INSERT INTO repository_scans VALUES (?, ?, ?, 'PENDING', NULL, ?, ?)",
+            (scan_id, repo, base_sha, created, created),
+        )
+        return {"id": scan_id, "repo": repo, "base_sha": base_sha,
+                "status": "PENDING", "error": None,
+                "created_at": created, "updated_at": created}, True
+
+
+def update_scan(scan_id: str, status: str, error: str | None = None):
+    if status not in ("RUNNING", "COMPLETED", "FAILED"):
+        raise ValueError("Invalid scan status")
+    with _LOCK, _db() as conn:
+        conn.execute(
+            "UPDATE repository_scans SET status=?, error=?, updated_at=? WHERE id=?",
+            (status, error, now(), scan_id),
+        )
+
+
+def get_latest_scan(repo: str):
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT * FROM repository_scans WHERE repo=? "
+            "ORDER BY created_at DESC LIMIT 1", (repo,)
+        ).fetchone()
+    return dict(row) if row else None
