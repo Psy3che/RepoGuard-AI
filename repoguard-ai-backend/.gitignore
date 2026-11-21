@@ -9,3 +9,8 @@ __pycache__/
 *.key
 *.db
 *.sqlite*
+.env
+.env.example
+test.py
+.env.example
+.env
