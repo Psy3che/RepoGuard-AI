@@ -578,7 +578,7 @@ export function Dashboard() {
         {(fetchState.status === "loading" || repoLoading) && !data && <div className="loading-screen"><div className="spinner"/><h2>Loading repository intelligence</h2><p>Preparing modules and pull request findings...</p></div>}
         {data && <>
           <div className="page-overview"><div className="page-repo-line"><span className="line-badge"><GitBranch size={14}/>{repo?.default_branch || "main"}</span><span className="tiny-divider"/><span>{repo?.owner}/{repo?.name}</span><span className="tiny-divider"/><span>{repo?.last_analyzed_at ? <>Last scan <Time value={repo.last_analyzed_at}/></> : "Not analyzed"}</span></div><span className="analysis-disclaimer"><CircleDot size={12}/>{data.mode === "demo" ? "All results are simulated" : data.mode === "unscanned" ? "GitHub metadata only — no AI scan" : "AI findings may need verification"}</span></div>
-          {data.mode === "unscanned" ? <UnscannedRepository owner={data.repository.owner} name={data.repository.name}
+          {data.mode === "unscanned" && view !== "reviews" ? <UnscannedRepository owner={data.repository.owner} name={data.repository.name}
             canScan={canScan} scanning={scanning} onScan={() => void startScan()}/> : <>
           {view === "overview" && <Overview data={data} goToReview={goToReview} goToReviews={() => go("reviews")} goToArchitecture={() => go("architecture")}/>}
           {view === "architecture" && <Architecture data={data} selectedModule={selectedModule} setSelectedModule={setSelectedModule} selectedReviewId={selectedReviewId} onReviewChange={(id) => setSelectedReviewId(id)}/>}
