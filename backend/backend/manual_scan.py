@@ -85,7 +85,7 @@ def _run_scan(scan_id: str, repository: str, base_sha: str, installation_id: int
         token = api.installation_token(installation_id)
         repo_map = build_repo_map(owner, repo, base_sha, api, token)
         if repo_map.get("ai_status") != "OK":
-            cause = str(repo_map.get("ai_error_type") or "UnknownError")[:80]
+            cause = str(repo_map.get("ai_error_reason") or repo_map.get("ai_error_type") or "UnknownError")[:80]
             storage.update_scan(scan_id, "FAILED", error=f"DeepSeek architecture analysis unavailable ({cause})")
             log.warning("DeepSeek architecture analysis unavailable for %s: %s", repository, cause)
             return
