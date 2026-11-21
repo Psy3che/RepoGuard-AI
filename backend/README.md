@@ -120,7 +120,32 @@ curl -H 'Authorization: Bearer 你的DASHBOARD_TOKEN' \
   'http://127.0.0.1:8000/api/reviews'
 ```
 
-## 4. 运行测试
+## 4. 按钮手动分析仓库（无需 PR）
+
+本地联调时，Next.js 需要在 `frontend/.env.local` 设置与后端一致的
+`REPOGUARD_DASHBOARD_TOKEN` 和 `REPOGUARD_API_BASE_URL`，然后重启两个服务。
+
+1. 在 Dashboard 左侧选择 **GitHub App 已安装**的仓库。
+2. 点击 **Analyze Repository**（已有结果则为 **Rescan Repository**）。
+3. 后端校验该仓库的 GitHub App 安装状态，定位默认分支最新 commit SHA。
+4. 后台使用现有 `build_repo_map()` 分析路径和抽样源代码，并请求 DeepSeek 生成架构摘要与关键模块。
+5. 页面每 2.5 秒查询一次状态；成功后自动刷新 Architecture Map。
+
+也可以测试 API（必须使用安全的 Bearer Token）：
+
+```bash
+curl -X POST -H "Authorization: Bearer YOUR_DASHBOARD_TOKEN" \
+  http://127.0.0.1:8000/api/repositories/Psy3che/RepoGuard-Demo/scan
+
+curl -H "Authorization: Bearer YOUR_DASHBOARD_TOKEN" \
+  http://127.0.0.1:8000/api/repositories/Psy3che/RepoGuard-Demo/scan
+```
+
+异步状态为 `IDLE / PENDING / RUNNING / COMPLETED / FAILED`。任务状态写入 SQLite，服务器重启会将未完成的任务标记为失败，支持重新运行；同一仓库同时只启动一个手动扫描。
+
+**重要限制：** API 仍使用单一管理员 Token，没有面向多用户的 OAuth 授权控制，因此仅可在本地开发环境中使用。仓库分析只抽样部分代码及显式导入关系，不能代替全面静态分析、测试和安全审计。模型调用失败时任务状态为 FAILED，不展示假的 AI 结果。扫描需要有效的 DeepSeek API Key；当前 PR 分析功能保留。
+
+## 5. 运行测试
 
 ```bash
 pytest -q
@@ -128,7 +153,7 @@ pytest -q
 
 测试使用模拟 Webhook/DeepSeek，不会调用真实 API，也不会产生 DeepSeek 费用。
 
-## 5. 风险评估解释
+## 6. 风险评估解释
 
 - GitHub PR 只发送经筛选/脱敏、长度受限的 patch 摘要和仓库代码片段到 DeepSeek。
 - 文件重要性规则是启发式，模型推荐的关键模块会标记 `AI_SUGGESTED`。
@@ -141,7 +166,7 @@ pytest -q
 - FastAPI `BackgroundTasks` 仅适合演示，本地重启会丢失未完成任务。生产环境请换成独立任务队列并设置重试/死信机制。
 - 正式用于私有仓库前，需要进一步完善敏感信息检测、组织策略、数据保留和用户授权；正则脱敏无法确保没有任何秘密信息流入第三方模型。
 
-## 6. 代码结构
+## 7. 代码结构
 
 ```text
 backend/
@@ -156,7 +181,7 @@ tests/
 examples/
 ```
 
-## 7. 官方接口参考
+## 8. 官方接口参考
 
 - DeepSeek API: https://api-docs.deepseek.com/en/
 - DeepSeek JSON Output: https://api-docs.deepseek.com/guides/json_mode/
