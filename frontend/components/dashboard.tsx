@@ -12,7 +12,7 @@ import {
   X, XCircle, Zap,
 } from "lucide-react";
 import { ImpactGraph } from "./impact-graph";
-import type { DashboardPayload, Finding, Importance, PullRequestReview, RepoModule, RepositoryListResponse, RepositoryOption, RiskLevel } from "@/lib/types";
+import type { DashboardPayload, Finding, Importance, OpenPullRequest, OpenPullRequestsResponse, PullRequestReview, RepoModule, RepositoryListResponse, RepositoryOption, RiskLevel } from "@/lib/types";
 
 type View = "overview" | "architecture" | "reviews" | "policies";
 
@@ -31,9 +31,9 @@ function RiskTag({ risk, compact = false }: { risk: RiskLevel | Importance; comp
 
 function StatusTag({ decision }: { decision: PullRequestReview["merge_decision"] }) {
   const values = {
-    PASS: { label: "Check passed", Icon: CheckCircle2, css: "status-pass" },
-    REVIEW_REQUIRED: { label: "Needs review", Icon: AlertTriangle, css: "status-review" },
-    BLOCK: { label: "Block merge", Icon: XCircle, css: "status-block" },
+    PASS: { label: "No blocking findings (sampled)", Icon: CheckCircle2, css: "status-pass" },
+    REVIEW_REQUIRED: { label: "Human review required", Icon: AlertTriangle, css: "status-review" },
+    BLOCK: { label: "Verified issue — do not merge", Icon: XCircle, css: "status-block" },
     UNKNOWN: { label: "Not verified", Icon: HelpCircle, css: "status-unknown" },
   };
   const item = values[decision];
@@ -60,7 +60,11 @@ function ReviewRow({ review, active, onClick }: { review: PullRequestReview; act
       <div className="review-title">{review.title}</div>
       <div className="review-meta"><span>#{review.number}</span><span className="bullet">·</span><span>{review.author}</span><span className="bullet">·</span><span>{review.files_changed} files</span></div>
     </div>
-    <RiskTag risk={review.risk_level} compact />
+    {review.review_status === "PENDING" || review.review_status === "RUNNING"
+      ? <span className="review-state-working"><RefreshCw size={12} className="spinning"/> Analyzing</span>
+      : review.review_status === "FAILED"
+        ? <span className="review-state-failed">Analysis failed</span>
+        : <RiskTag risk={review.risk_level} compact />}
     <ChevronRight className="review-chevron" size={16} />
   </button>;
 }
@@ -72,6 +76,32 @@ function FindingCard({ finding }: { finding: Finding }) {
     <p>{finding.explanation}</p>
     <div className="finding-code"><FileCode2 size={13} /><span>{finding.file}{finding.line ? `:${finding.line}` : ""}</span></div>
     <div className="finding-fix"><Sparkles size={15} /><span>{finding.recommendation}</span></div>
+  </div>;
+}
+
+function RiskDecisionNotice({ review, stale }: { review: PullRequestReview; stale: boolean }) {
+  const working = review.review_status === "PENDING" || review.review_status === "RUNNING";
+  const failed = review.review_status === "FAILED";
+  const status = stale || failed ? "unknown" : working ? "pending" :
+    review.merge_decision === "BLOCK" ? "block" :
+    review.merge_decision === "PASS" ? "pass" :
+    review.merge_decision === "REVIEW_REQUIRED" ? "warning" : "unknown";
+  const text = stale ? "This PR has new commits since the last analysis. Review the latest version before merging." :
+    failed ? "The analysis failed. No merge conclusion is available; rerun the review." :
+    working ? "RepoGuard is reviewing the changed code. No merge conclusion yet." :
+    status === "block" ? "Verified code issue detected. Fix it and rerun the analysis before merging." :
+    status === "pass" ? "No blocking findings detected in the reviewed changes. This does not prove the code is safe or correct." :
+    status === "warning" ? "Potential impact detected. A human should inspect the changed logic and related modules." :
+    "Analysis coverage is incomplete or risk is unknown. Manual review is required.";
+  const heading = stale ? "OUTDATED REVIEW" : failed ? "ANALYSIS FAILED" :
+    working ? "ANALYSIS IN PROGRESS" :
+    status === "block" ? "DO NOT MERGE — VERIFIED ISSUE" :
+    status === "pass" ? "NO BLOCKING FINDINGS IN REVIEWED SCOPE" :
+    status === "warning" ? `RISK WARNING — ${review.risk_level}` : "RISK NOT VERIFIED";
+  return <div className={`pr-decision-banner pr-decision-${status}`} role="alert">
+    {status === "pass" ? <ShieldCheck size={23}/> :
+      status === "pending" ? <RefreshCw className="spinning" size={23}/> : <ShieldAlert size={23}/>}
+    <div><strong>{heading}</strong><p>{text}</p></div>
   </div>;
 }
 
