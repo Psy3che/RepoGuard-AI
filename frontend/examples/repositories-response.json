@@ -1,0 +1,25 @@
+{
+  "source": "github-app",
+  "repositories": [
+    {
+      "id": 123456,
+      "full_name": "example-org/repo-one",
+      "name": "repo-one",
+      "owner": "example-org",
+      "private": true,
+      "description": "Example installed repository. Replace with real GitHub App data.",
+      "default_branch": "main",
+      "html_url": "https://github.com/example-org/repo-one"
+    },
+    {
+      "id": 123457,
+      "full_name": "example-org/repo-two",
+      "name": "repo-two",
+      "owner": "example-org",
+      "private": false,
+      "description": "Second sample repository",
+      "default_branch": "main",
+      "html_url": "https://github.com/example-org/repo-two"
+    }
+  ]
+}

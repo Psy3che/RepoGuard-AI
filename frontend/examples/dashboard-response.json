@@ -1,0 +1,412 @@
+{
+  "mode": "demo",
+  "repository": {
+    "owner": "orbit-labs",
+    "name": "commerce-platform",
+    "default_branch": "main",
+    "description": "Modular commerce platform with shared authentication and payment services.",
+    "language": "TypeScript",
+    "last_analyzed_at": "2026-11-21T10:24:00Z",
+    "tracked_files": 186,
+    "analyzed_files": 74,
+    "analysis_coverage": "PARTIAL"
+  },
+  "modules": [
+    {
+      "id": "gateway",
+      "name": "API Gateway",
+      "path": "src/api/gateway.ts",
+      "category": "Entry point",
+      "importance": "HIGH",
+      "reason": "Routes requests to multiple services; changes can alter exposed contracts.",
+      "protected": true,
+      "position": {
+        "x": 55,
+        "y": 210
+      }
+    },
+    {
+      "id": "auth",
+      "name": "Auth Core",
+      "path": "src/core/auth.ts",
+      "category": "Security",
+      "importance": "CRITICAL",
+      "reason": "Token verification is used across payment and order flows.",
+      "protected": true,
+      "position": {
+        "x": 342,
+        "y": 55
+      }
+    },
+    {
+      "id": "payments",
+      "name": "Payment Engine",
+      "path": "src/services/payment.ts",
+      "category": "Financial",
+      "importance": "CRITICAL",
+      "reason": "Centralized transaction authorization and billing logic.",
+      "protected": true,
+      "position": {
+        "x": 636,
+        "y": 65
+      }
+    },
+    {
+      "id": "orders",
+      "name": "Order Service",
+      "path": "src/services/orders.ts",
+      "category": "Business logic",
+      "importance": "HIGH",
+      "reason": "Creates and updates fulfillment orders used across checkout.",
+      "protected": true,
+      "position": {
+        "x": 638,
+        "y": 360
+      }
+    },
+    {
+      "id": "database",
+      "name": "Data Layer",
+      "path": "src/db/schema.ts",
+      "category": "Persistence",
+      "importance": "CRITICAL",
+      "reason": "Shared schema and migrations influence data compatibility.",
+      "protected": true,
+      "position": {
+        "x": 945,
+        "y": 365
+      }
+    },
+    {
+      "id": "fraud",
+      "name": "Fraud Detection",
+      "path": "src/core/fraud.ts",
+      "category": "Risk engine",
+      "importance": "HIGH",
+      "reason": "Decides when financial operations require extra screening.",
+      "protected": false,
+      "position": {
+        "x": 942,
+        "y": 65
+      }
+    },
+    {
+      "id": "notifications",
+      "name": "Notifications",
+      "path": "src/lib/notifications.ts",
+      "category": "Utility",
+      "importance": "MEDIUM",
+      "reason": "Sends status updates; changes are generally localized.",
+      "protected": false,
+      "position": {
+        "x": 943,
+        "y": 540
+      }
+    },
+    {
+      "id": "admin",
+      "name": "Admin UI",
+      "path": "src/ui/admin.tsx",
+      "category": "Interface",
+      "importance": "LOW",
+      "reason": "Presentation component with limited direct dependencies.",
+      "protected": false,
+      "position": {
+        "x": 55,
+        "y": 450
+      }
+    }
+  ],
+  "dependencies": [
+    {
+      "source": "gateway",
+      "target": "auth",
+      "label": "verifies"
+    },
+    {
+      "source": "gateway",
+      "target": "orders",
+      "label": "routes"
+    },
+    {
+      "source": "auth",
+      "target": "payments",
+      "label": "authorizes"
+    },
+    {
+      "source": "auth",
+      "target": "orders",
+      "label": "authenticates"
+    },
+    {
+      "source": "payments",
+      "target": "fraud",
+      "label": "checks"
+    },
+    {
+      "source": "payments",
+      "target": "orders",
+      "label": "charges"
+    },
+    {
+      "source": "orders",
+      "target": "database",
+      "label": "persists"
+    },
+    {
+      "source": "orders",
+      "target": "notifications",
+      "label": "notifies"
+    },
+    {
+      "source": "admin",
+      "target": "gateway",
+      "label": "requests"
+    }
+  ],
+  "reviews": [
+    {
+      "id": "pr-128",
+      "number": 128,
+      "title": "Refactor token verification response",
+      "author": "alexchen",
+      "branch": "refactor/token-response",
+      "updated_at": "2026-11-21T10:38:00Z",
+      "risk_level": "HIGH",
+      "merge_decision": "REVIEW_REQUIRED",
+      "summary": "The verification contract changes from a boolean to an object. Several callers may still assume the old type, putting authorization paths at risk.",
+      "files_changed": 4,
+      "additions": 82,
+      "deletions": 19,
+      "affected_module_ids": [
+        "auth",
+        "payments",
+        "orders",
+        "gateway"
+      ],
+      "diff_path": "src/core/auth.ts",
+      "findings": [
+        {
+          "id": "f-128-1",
+          "file": "src/core/auth.ts",
+          "line": 42,
+          "severity": "HIGH",
+          "status": "SUSPECTED",
+          "title": "Authentication return contract changed",
+          "explanation": "The new object return value is different from the former boolean contract. Call sites in payment and order services should be verified.",
+          "recommendation": "Update dependent call sites or preserve the original API contract; then run integration tests."
+        },
+        {
+          "id": "f-128-2",
+          "file": "src/services/payment.ts",
+          "line": 87,
+          "severity": "MEDIUM",
+          "status": "SUSPECTED",
+          "title": "Potential truthiness regression",
+          "explanation": "A caller checks the result directly as a boolean. An object is truthy even when its `valid` property is false.",
+          "recommendation": "Check `result.valid` explicitly and cover invalid tokens with a regression test."
+        }
+      ],
+      "diff": [
+        {
+          "kind": "context",
+          "code": "export function verifyToken(token: string) {",
+          "line": 40
+        },
+        {
+          "kind": "remove",
+          "code": "  if (!token) return false;",
+          "line": 41
+        },
+        {
+          "kind": "remove",
+          "code": "  return decodeAndVerify(token);",
+          "line": 42
+        },
+        {
+          "kind": "add",
+          "code": "  if (!token) return { valid: false, reason: 'empty' };",
+          "line": 41
+        },
+        {
+          "kind": "add",
+          "code": "  return { valid: decodeAndVerify(token) };",
+          "line": 42
+        },
+        {
+          "kind": "context",
+          "code": "}",
+          "line": 43
+        }
+      ]
+    },
+    {
+      "id": "pr-127",
+      "number": 127,
+      "title": "Improve checkout button styling",
+      "author": "maya",
+      "branch": "ui/checkout-polish",
+      "updated_at": "2026-11-21T09:45:00Z",
+      "risk_level": "LOW",
+      "merge_decision": "PASS",
+      "summary": "Styling-only changes were observed in a UI component; the available checks have not identified a cross-module contract change.",
+      "files_changed": 2,
+      "additions": 24,
+      "deletions": 14,
+      "affected_module_ids": [
+        "admin"
+      ],
+      "diff_path": "src/ui/CheckoutButton.tsx",
+      "findings": [],
+      "diff": [
+        {
+          "kind": "context",
+          "code": "<button",
+          "line": 12
+        },
+        {
+          "kind": "remove",
+          "code": "  className=\"bg-slate-600 px-4\"",
+          "line": 13
+        },
+        {
+          "kind": "add",
+          "code": "  className=\"bg-indigo-600 px-5 rounded-xl\"",
+          "line": 13
+        },
+        {
+          "kind": "context",
+          "code": ">Continue to payment</button>",
+          "line": 14
+        }
+      ]
+    },
+    {
+      "id": "pr-126",
+      "number": 126,
+      "title": "Simplify admin permissions middleware",
+      "author": "jordan",
+      "branch": "perf/admin-middleware",
+      "updated_at": "2026-11-20T19:14:00Z",
+      "risk_level": "CRITICAL",
+      "merge_decision": "BLOCK",
+      "summary": "The proposed change removes an explicit role check from the administrative middleware. Access-control regression requires verification and remediation before merge.",
+      "files_changed": 3,
+      "additions": 12,
+      "deletions": 37,
+      "affected_module_ids": [
+        "gateway",
+        "auth",
+        "admin"
+      ],
+      "diff_path": "src/api/adminMiddleware.ts",
+      "findings": [
+        {
+          "id": "f-126-1",
+          "file": "src/api/adminMiddleware.ts",
+          "line": 27,
+          "severity": "CRITICAL",
+          "status": "VERIFIED",
+          "title": "Explicit admin role check removed",
+          "explanation": "The diff removes the `user.role !== 'admin'` rejection guard. This removal is visible in the patch; exploitability still depends on upstream access checks.",
+          "recommendation": "Restore the role check or provide evidence of an equivalent enforced authorization layer."
+        },
+        {
+          "id": "f-126-2",
+          "file": "src/api/gateway.ts",
+          "line": null,
+          "severity": "HIGH",
+          "status": "SUSPECTED",
+          "title": "Administrative routes may be exposed",
+          "explanation": "The gateway delegates to the modified middleware. Verify access control for every privileged endpoint.",
+          "recommendation": "Add negative authorization tests for non-admin and unauthenticated users."
+        }
+      ],
+      "diff": [
+        {
+          "kind": "context",
+          "code": "export async function requireAdmin(req, res, next) {",
+          "line": 24
+        },
+        {
+          "kind": "context",
+          "code": "  const user = await getSessionUser(req);",
+          "line": 25
+        },
+        {
+          "kind": "remove",
+          "code": "  if (!user || user.role !== 'admin') {",
+          "line": 26
+        },
+        {
+          "kind": "remove",
+          "code": "    return res.status(403).send('Forbidden');",
+          "line": 27
+        },
+        {
+          "kind": "remove",
+          "code": "  }",
+          "line": 28
+        },
+        {
+          "kind": "add",
+          "code": "  // Fast path: access verified upstream",
+          "line": 26
+        },
+        {
+          "kind": "context",
+          "code": "  return next();",
+          "line": 29
+        }
+      ]
+    },
+    {
+      "id": "pr-125",
+      "number": 125,
+      "title": "Update order schema migration",
+      "author": "chris",
+      "branch": "database/order-index",
+      "updated_at": "2026-11-20T17:08:00Z",
+      "risk_level": "MEDIUM",
+      "merge_decision": "REVIEW_REQUIRED",
+      "summary": "The migration touches a protected persistence layer. No direct error was verified, but backwards compatibility and rollback should be tested.",
+      "files_changed": 3,
+      "additions": 44,
+      "deletions": 7,
+      "affected_module_ids": [
+        "database",
+        "orders"
+      ],
+      "diff_path": "src/db/migrations/2026_add_index.sql",
+      "findings": [
+        {
+          "id": "f-125-1",
+          "file": "src/db/migrations/2026_add_index.sql",
+          "line": 8,
+          "severity": "MEDIUM",
+          "status": "SUSPECTED",
+          "title": "Migration rollout needs validation",
+          "explanation": "A persistent schema change may affect order queries or deployments across versions.",
+          "recommendation": "Run migration/rollback tests on a staging snapshot and verify query performance."
+        }
+      ],
+      "diff": [
+        {
+          "kind": "context",
+          "code": "-- Optimize order lookup",
+          "line": 6
+        },
+        {
+          "kind": "add",
+          "code": "CREATE INDEX idx_orders_customer",
+          "line": 7
+        },
+        {
+          "kind": "add",
+          "code": "  ON orders(customer_id);",
+          "line": 8
+        }
+      ]
+    }
+  ]
+}
