@@ -242,7 +242,7 @@ def dashboard(repository: str) -> dict:
         modules.append({**m, "position": {"x": 90 + (i % 4) * 300, "y": 70 + (i // 4) * 175}})
     ids = {m["path"]: m["id"] for m in modules}
     finished = [row for row in rows if row["status"] == "COMPLETED"]
-    last_at = finished[0]["updated_at"] if finished else ""
+    last_at = finished[0]["updated_at"] if finished else (repo_map.get("scanned_at", "") if repo_map else "")
     return {
         "mode": "live" if repo_map else "unscanned",
         "repository": {
