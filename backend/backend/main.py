@@ -13,6 +13,7 @@ from backend.security import verify_signature
 from backend import storage
 from backend.service import process_pr
 from backend.dashboard_adapter import dashboard as build_dashboard, installed_repositories
+from backend.manual_scan import queue_scan, latest_scan
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("repoguard")
@@ -119,3 +120,18 @@ def dashboard_view(repository: str = Query(..., min_length=3, max_length=201)):
 def installed_repository_list():
     """Single-operator/admin access only; no per-user OAuth sessions in MVP."""
     return installed_repositories()
+
+
+
+@app.post("/api/repositories/{owner}/{repo}/scan", status_code=202,
+          dependencies=[Depends(dashboard_auth)])
+def trigger_manual_scan(owner: str, repo: str, background_tasks: BackgroundTasks):
+    """Queue an on-demand architecture scan; never require a Pull Request."""
+    return queue_scan(owner, repo, background_tasks)
+
+
+@app.get("/api/repositories/{owner}/{repo}/scan",
+         dependencies=[Depends(dashboard_auth)])
+def manual_scan_status(owner: str, repo: str):
+    """Status polling endpoint for the local Next.js dashboard."""
+    return latest_scan(owner, repo)

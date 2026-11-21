@@ -14,6 +14,9 @@ export interface RepositorySummary {
   tracked_files: number;
   analyzed_files: number;
   analysis_coverage: "PARTIAL" | "FULL" | "UNKNOWN";
+  architecture_summary?: string;
+  architecture_notes?: string[];
+  ai_status?: string;
 }
 
 export interface RepoModule {
