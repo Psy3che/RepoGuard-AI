@@ -18,6 +18,10 @@ type View = "overview" | "architecture" | "reviews" | "policies";
 
 type FetchState = { status: "loading" | "ready" | "error"; message?: string };
 
+type ScanStatus = "IDLE" | "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+type ManualScanState = { repository: string | null; status: ScanStatus; error?: string };
+type ScanResponse = { status: ScanStatus; repository?: string; error?: string };
+
 const riskRanks: Record<RiskLevel, number> = { CRITICAL: 5, HIGH: 4, MEDIUM: 3, UNKNOWN: 2, LOW: 1 };
 const riskLabel: Record<RiskLevel, string> = { CRITICAL: "Critical", HIGH: "High", MEDIUM: "Medium", LOW: "Low", UNKNOWN: "Unknown" };
 
@@ -118,15 +122,29 @@ function RepositoryPicker({ repositories, source, selected, loading, error, open
   </div>;
 }
 
-function UnscannedRepository({ owner, name }: { owner: string; name: string }) {
+function UnscannedRepository({ owner, name, canScan, scanning, onScan }: {
+  owner: string;
+  name: string;
+  canScan: boolean;
+  scanning: boolean;
+  onScan: () => void;
+}) {
   const url = `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
   return <section className="unscanned-panel panel">
     <div className="unscanned-symbol"><GitBranch size={32}/></div>
     <span className="eyebrow">REAL GITHUB REPOSITORY</span>
     <h2>{owner}/{name}</h2>
     <p>This repository was fetched from GitHub, but <strong>RepoGuard has not analyzed its code yet.</strong> We deliberately do not show simulated risk scores for a real repository.</p>
-    <div className="unscanned-actions"><a href={url} target="_blank" rel="noreferrer" className="secondary-button">Open on GitHub <ExternalLink size={15}/></a></div>
-    <div className="unscanned-tip"><ShieldAlert size={17}/><span>To enable live core-module discovery and PR risk reports, install RepoGuard GitHub App and connect the FastAPI <code>/api/dashboard?repository=owner/repo</code> endpoint.</span></div>
+    <div className="unscanned-actions">
+      {canScan && <button type="button" className="primary-button" onClick={onScan} disabled={scanning}>
+        {scanning ? <RefreshCw size={16} className="spinning"/> : <Sparkles size={16}/>}
+        {scanning ? "Analyzing repository..." : "Analyze Repository"}
+      </button>}
+      <a href={url} target="_blank" rel="noreferrer" className="secondary-button">Open on GitHub <ExternalLink size={15}/></a>
+    </div>
+    <div className="unscanned-tip"><ShieldAlert size={17}/><span>{canScan
+      ? "This scan indexes selected source files, detects candidate critical modules, and asks DeepSeek for an architecture summary. Dependency coverage is partial, not exhaustive."
+      : "AI scanning requires the installed RepoGuard GitHub App and a connected local FastAPI backend."}</span></div>
   </section>;
 }
 
@@ -232,6 +250,7 @@ export function Dashboard() {
   const [repoError, setRepoError] = useState<string | null>(null);
   const [githubOwner, setGithubOwner] = useState("");
   const requestId = useRef(0);
+  const [scanState, setScanState] = useState<ManualScanState>({ repository: null, status: "IDLE" });
 
   const loadRepositories = useCallback(async (owner?: string) => {
     setRepoLoading(true);
@@ -279,6 +298,82 @@ export function Dashboard() {
     } finally { if (current === requestId.current) setRefreshing(false); }
   }, []);
 
+  const canScan = Boolean(selectedRepository && repositorySource === "github-app");
+  const scanning = scanState.repository === selectedRepository &&
+    (scanState.status === "PENDING" || scanState.status === "RUNNING");
+  const scanError = scanState.repository === selectedRepository && scanState.status === "FAILED"
+    ? scanState.error || "The scan did not complete. Check FastAPI logs and DeepSeek settings."
+    : null;
+
+  const startScan = useCallback(async () => {
+    if (!selectedRepository || repositorySource !== "github-app") return;
+    const repository = selectedRepository;
+    setScanState({ repository, status: "PENDING" });
+    try {
+      const response = await fetch(`/api/repository-scan?repository=${encodeURIComponent(repository)}`, {
+        method: "POST", cache: "no-store",
+      });
+      const payload = await response.json() as ScanResponse & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Could not start repository scan.");
+      if (payload.status === "PENDING" || payload.status === "RUNNING") {
+        setScanState({ repository, status: payload.status });
+      } else if (payload.status === "COMPLETED") {
+        setScanState({ repository, status: "COMPLETED" });
+        if (repository === selectedRepository) void load(repository);
+      } else {
+        throw new Error("Unexpected scan response.");
+      }
+    } catch (err) {
+      setScanState({ repository, status: "FAILED",
+        error: err instanceof Error ? err.message : "Could not start repository scan." });
+    }
+  }, [selectedRepository, repositorySource, load]);
+
+  // Resume status polling after navigation or a page refresh.
+  useEffect(() => {
+    if (!selectedRepository || repositorySource !== "github-app") return;
+    const repository = selectedRepository;
+    let cancelled = false;
+    void fetch(`/api/repository-scan?repository=${encodeURIComponent(repository)}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = await response.json() as ScanResponse;
+        if (!cancelled) {
+          setScanState({ repository, status: payload.status, error: payload.error });
+        }
+      }).catch(() => { /* The dashboard API separately exposes backend errors. */ });
+    return () => { cancelled = true; };
+  }, [selectedRepository, repositorySource]);
+
+  useEffect(() => {
+    if (!selectedRepository || scanState.repository !== selectedRepository ||
+        (scanState.status !== "PENDING" && scanState.status !== "RUNNING")) return;
+    const repository = selectedRepository;
+    let cancelled = false;
+    let checking = false;
+    const timer = window.setInterval(async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const response = await fetch(`/api/repository-scan?repository=${encodeURIComponent(repository)}`, {
+          cache: "no-store",
+        });
+        const payload = await response.json() as ScanResponse & { error?: string };
+        if (!response.ok) throw new Error(payload.error || "Could not check scan status.");
+        if (!cancelled) {
+          setScanState({ repository, status: payload.status, error: payload.error });
+          if (payload.status === "COMPLETED") void load(repository);
+        }
+      } catch (err) {
+        if (!cancelled) setScanState({ repository, status: "FAILED",
+          error: err instanceof Error ? err.message : "Scan status unavailable." });
+      } finally {
+        checking = false;
+      }
+    }, 2500);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [selectedRepository, scanState.repository, scanState.status, load]);
+
   useEffect(() => { void loadRepositories(); }, [loadRepositories]);
   useEffect(() => { if (selectedRepository) void load(selectedRepository); }, [selectedRepository, load]);
 
@@ -305,13 +400,22 @@ export function Dashboard() {
       <div className="sidebar-status"><div><span className="sidebar-status-dot"/> Analysis pipeline</div><strong>{fetchState.status === "ready" ? "Ready" : fetchState.status === "loading" ? "Loading" : "Unavailable"}</strong></div>
       <div className="sidebar-bottom"><div className="side-note"><span className="side-note-star"><Zap size={15}/></span><strong>Ship with confidence</strong><p>Understand change impact before pressing merge.</p></div><div className="sidebar-footer"><span className="footer-avatar">RG</span><div><strong>RepoGuard Workspace</strong><small>Hackathon MVP · v0.1</small></div><MoreHorizontal size={18}/></div></div>
     </aside>
-    <div className="content-shell"><header className="topbar"><div className="topbar-left"><button className="menu-toggle" onClick={() => setMobileNavOpen(true)} aria-label="Open sidebar"><Menu size={20}/></button><span className="breadcrumb-dim">Workspace</span><ChevronRight size={14} className="breadcrumb-arrow"/><span className="breadcrumb-current">{navItems.find((x) => x.id === view)?.title}</span></div><div className="topbar-right">{data && <span className={`mode-tag ${data.mode === "demo" ? "mode-demo" : data.mode === "unscanned" ? "mode-unscanned" : "mode-live"}`}><span/> {data.mode === "demo" ? "DEMO DATA" : data.mode === "unscanned" ? "NOT SCANNED" : "LIVE BACKEND"}</span>}<button className={`toolbar-button ${refreshing ? "spinning" : ""}`} onClick={() => selectedRepository && void load(selectedRepository)} disabled={refreshing || !selectedRepository} title="Refresh analysis" aria-label="Refresh analysis"><RefreshCw size={17}/></button><span className="topbar-divider"/><span className="topbar-avatar">RG</span></div></header>
+    <div className="content-shell"><header className="topbar"><div className="topbar-left"><button className="menu-toggle" onClick={() => setMobileNavOpen(true)} aria-label="Open sidebar"><Menu size={20}/></button><span className="breadcrumb-dim">Workspace</span><ChevronRight size={14} className="breadcrumb-arrow"/><span className="breadcrumb-current">{navItems.find((x) => x.id === view)?.title}</span></div><div className="topbar-right">
+      {canScan && <button type="button" className="scan-toolbar-button" onClick={() => void startScan()}
+        disabled={scanning} title="Scan repository architecture with DeepSeek">
+        {scanning ? <RefreshCw size={15} className="spinning"/> : <Sparkles size={15}/>}
+        <span>{scanning ? "Analyzing..." : data?.mode === "live" ? "Rescan Repository" : "Analyze Repository"}</span>
+      </button>}
+      {data && <span className={`mode-tag ${data.mode === "demo" ? "mode-demo" : data.mode === "unscanned" ? "mode-unscanned" : "mode-live"}`}><span/> {data.mode === "demo" ? "DEMO DATA" : data.mode === "unscanned" ? "NOT SCANNED" : "LIVE BACKEND"}</span>}<button className={`toolbar-button ${refreshing ? "spinning" : ""}`} onClick={() => selectedRepository && void load(selectedRepository)} disabled={refreshing || !selectedRepository} title="Refresh analysis" aria-label="Refresh analysis"><RefreshCw size={17}/></button><span className="topbar-divider"/><span className="topbar-avatar">RG</span></div></header>
       <main className="page-content">
+        {scanning && <div className="scan-progress" role="status"><RefreshCw size={17} className="spinning"/> Analyzing {selectedRepository}: indexing code and generating an AI architecture map...</div>}
+        {scanError && <div className="scan-error" role="alert"><AlertTriangle size={17}/> Repository scan failed: {scanError}</div>}
         {fetchState.status === "error" && <div className="load-error"><AlertOctagon size={25}/><div><strong>Backend connection failed</strong><p>{fetchState.message}</p><p>Check your repository permissions, FastAPI endpoints and REPOGUARD_API_BASE_URL.</p></div><button className="secondary-button" onClick={() => selectedRepository ? void load(selectedRepository) : void loadRepositories()}>Retry <RefreshCw size={15}/></button></div>}
         {(fetchState.status === "loading" || repoLoading) && !data && <div className="loading-screen"><div className="spinner"/><h2>Loading repository intelligence</h2><p>Preparing modules and pull request findings...</p></div>}
         {data && <>
           <div className="page-overview"><div className="page-repo-line"><span className="line-badge"><GitBranch size={14}/>{repo?.default_branch || "main"}</span><span className="tiny-divider"/><span>{repo?.owner}/{repo?.name}</span><span className="tiny-divider"/><span>{repo?.last_analyzed_at ? <>Last scan <Time value={repo.last_analyzed_at}/></> : "Not analyzed"}</span></div><span className="analysis-disclaimer"><CircleDot size={12}/>{data.mode === "demo" ? "All results are simulated" : data.mode === "unscanned" ? "GitHub metadata only — no AI scan" : "AI findings may need verification"}</span></div>
-          {data.mode === "unscanned" ? <UnscannedRepository owner={data.repository.owner} name={data.repository.name}/> : <>
+          {data.mode === "unscanned" ? <UnscannedRepository owner={data.repository.owner} name={data.repository.name}
+            canScan={canScan} scanning={scanning} onScan={() => void startScan()}/> : <>
           {view === "overview" && <Overview data={data} goToReview={goToReview} goToReviews={() => go("reviews")} goToArchitecture={() => go("architecture")}/>}
           {view === "architecture" && <Architecture data={data} selectedModule={selectedModule} setSelectedModule={setSelectedModule} selectedReviewId={selectedReviewId} onReviewChange={(id) => setSelectedReviewId(id)}/>}
           {view === "reviews" && <Reviews data={data} selectedReviewId={selectedReviewId} onSelectReview={setSelectedReviewId}/>}
