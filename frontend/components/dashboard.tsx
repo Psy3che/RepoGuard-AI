@@ -366,6 +366,8 @@ export function Dashboard() {
   const [repoError, setRepoError] = useState<string | null>(null);
   const [githubOwner, setGithubOwner] = useState("");
   const requestId = useRef(0);
+  const [reviewToast, setReviewToast] = useState<{ id: string; number: number; level: RiskLevel; decision: string } | null>(null);
+  const observedReviews = useRef<Map<string, string>>(new Map());
   const [scanState, setScanState] = useState<ManualScanState>({ repository: null, status: "IDLE" });
 
   const loadRepositories = useCallback(async (owner?: string) => {
@@ -405,6 +407,7 @@ export function Dashboard() {
       }
       if (current !== requestId.current) return;
       setData(payload);
+      observedReviews.current = new Map(payload.reviews.map(r => [r.id, r.review_status || "COMPLETED"]));
       setSelectedReviewId(payload.reviews[0]?.id || "");
       setSelectedModule(payload.modules[0]?.id || null);
       setFetchState({ status: "ready" });
@@ -490,6 +493,40 @@ export function Dashboard() {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [selectedRepository, scanState.repository, scanState.status, load]);
 
+  // Pull Request events can arrive from a GitHub Webhook while the user is on the dashboard.
+  // Lightweight polling updates the risk badges and displays a new-result toast.
+  useEffect(() => {
+    if (!selectedRepository || repositorySource !== "github-app") return;
+    const repository = selectedRepository;
+    let cancelled = false;
+    let busy = false;
+    const tick = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const response = await fetch(`/api/dashboard?repository=${encodeURIComponent(repository)}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const payload = await response.json() as DashboardPayload;
+        if (`${payload.repository.owner}/${payload.repository.name}`.toLowerCase() !== repository.toLowerCase() || cancelled) return;
+        for (const review of payload.reviews) {
+          const previous = observedReviews.current.get(review.id);
+          if (review.review_status === "COMPLETED" && previous !== "COMPLETED") {
+            setReviewToast({
+              id: review.id, number: review.number, level: review.risk_level, decision: review.merge_decision,
+            });
+          }
+          observedReviews.current.set(review.id, review.review_status || "COMPLETED");
+        }
+        setData(payload);
+      } catch { /* Next successful poll can refresh. */ }
+      finally { busy = false; }
+    };
+    const timer = window.setInterval(() => { void tick(); }, view === "reviews" ? 5000 : 12000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [selectedRepository, repositorySource, view]);
+
   useEffect(() => { void loadRepositories(); }, [loadRepositories]);
   useEffect(() => { if (selectedRepository) void load(selectedRepository); }, [selectedRepository, load]);
 
@@ -524,6 +561,17 @@ export function Dashboard() {
       </button>}
       {data && <span className={`mode-tag ${data.mode === "demo" ? "mode-demo" : data.mode === "unscanned" ? "mode-unscanned" : "mode-live"}`}><span/> {data.mode === "demo" ? "DEMO DATA" : data.mode === "unscanned" ? "NOT SCANNED" : "LIVE BACKEND"}</span>}<button className={`toolbar-button ${refreshing ? "spinning" : ""}`} onClick={() => selectedRepository && void load(selectedRepository)} disabled={refreshing || !selectedRepository} title="Refresh analysis" aria-label="Refresh analysis"><RefreshCw size={17}/></button><span className="topbar-divider"/><span className="topbar-avatar">RG</span></div></header>
       <main className="page-content">
+        {reviewToast && <div role="alert" className={`pr-notification pr-notification-${reviewToast.decision === "BLOCK" ? "block" : reviewToast.decision === "PASS" ? "pass" : "warn"}`}>
+          {reviewToast.decision === "PASS" ? <CheckCircle2 size={21}/> : <AlertTriangle size={21}/>}
+          <span><strong>PR #{reviewToast.number} analysis complete</strong>
+          <small>{reviewToast.decision === "PASS" ? "No blocking findings in reviewed scope — tests still required." :
+            reviewToast.decision === "BLOCK" ? "Verified issue: do not merge before fixing." :
+            `Risk level ${reviewToast.level}: manual review recommended.`}</small></span>
+          <button type="button" onClick={() => {
+            setSelectedReviewId(reviewToast.id); setView("reviews"); setReviewToast(null);
+          }}>View review</button>
+          <button aria-label="Dismiss notification" type="button" onClick={() => setReviewToast(null)}><X size={17}/></button>
+        </div>
         {scanning && <div className="scan-progress" role="status"><RefreshCw size={17} className="spinning"/> Analyzing {selectedRepository}: indexing code and generating an AI architecture map...</div>}
         {scanError && <div className="scan-error" role="alert"><AlertTriangle size={17}/> Repository scan failed: {scanError}</div>}
         {fetchState.status === "error" && <div className="load-error"><AlertOctagon size={25}/><div><strong>Backend connection failed</strong><p>{fetchState.message}</p><p>Check your repository permissions, FastAPI endpoints and REPOGUARD_API_BASE_URL.</p></div><button className="secondary-button" onClick={() => selectedRepository ? void load(selectedRepository) : void loadRepositories()}>Retry <RefreshCw size={15}/></button></div>}
@@ -534,7 +582,10 @@ export function Dashboard() {
             canScan={canScan} scanning={scanning} onScan={() => void startScan()}/> : <>
           {view === "overview" && <Overview data={data} goToReview={goToReview} goToReviews={() => go("reviews")} goToArchitecture={() => go("architecture")}/>}
           {view === "architecture" && <Architecture data={data} selectedModule={selectedModule} setSelectedModule={setSelectedModule} selectedReviewId={selectedReviewId} onReviewChange={(id) => setSelectedReviewId(id)}/>}
-          {view === "reviews" && <Reviews data={data} selectedReviewId={selectedReviewId} onSelectReview={setSelectedReviewId}/>}
+          {view === "reviews" && <Reviews data={data} selectedReviewId={selectedReviewId}
+            onSelectReview={setSelectedReviewId} repository={selectedRepository || `${data.repository.owner}/${data.repository.name}`}
+            isGitHubApp={repositorySource === "github-app"}
+            onReviewQueued={() => selectedRepository && void load(selectedRepository)}/>}
           {view === "policies" && <Policies data={data}/>}
           </>}
           <footer className="page-footer"><span>RepoGuard AI © 2026</span><span><ShieldCheck size={13}/> Safe merging starts with clear evidence</span><span>{selectedReview ? `Selected PR #${selectedReview.number}` : "Repository intelligence"}</span></footer>
