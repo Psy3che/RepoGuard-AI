@@ -91,7 +91,7 @@ def test_failed_ai_scan_does_not_claim_live_map(monkeypatch, tmp_path):
             assert client.post(url, headers=headers).status_code == 202
             status = client.get(url, headers=headers).json()
             assert status["status"] == "FAILED"
-            assert status["error"] == "RuntimeError"
+            assert status["error"] == "DeepSeek architecture analysis unavailable (UnknownError)"
             assert storage.get_map("testowner/testrepo") is None
     finally:
         _restore(old_db, old_token)
