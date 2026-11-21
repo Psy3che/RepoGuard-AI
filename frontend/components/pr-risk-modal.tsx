@@ -73,6 +73,11 @@ export function RiskReviewModal({ repository, number, review, sample, onClose, o
     : "There is incomplete evidence or possible impact. Review the changes manually before merging.";
 
   const summary = review?.summary || "Waiting for the RepoGuard AI analysis result...";
+  const provenance = review?.ai_review;
+  const hasDeepSeekResult = provenance?.status === "COMPLETED" && provenance.provider === "DeepSeek";
+  const modelVerdict = provenance?.model_risk_level;
+  const adjusted = Boolean(modelVerdict && modelVerdict !== review?.risk_level);
+  const adjustmentReasons = provenance?.adjustments || [];
   const affected = [...new Set([
     ...(review?.important_touched_files ?? []),
     ...(review?.dependent_files ?? []),
@@ -121,6 +126,24 @@ export function RiskReviewModal({ repository, number, review, sample, onClose, o
           <div className="risk-modal-section-heading"><Sparkles size={18}/> AI ANALYSIS SUMMARY</div>
           <p>{summary}</p>
         </section>
+        {!sample && !working && !failed && <section className="risk-modal-ai-proof" aria-label="AI verdict provenance">
+          <div className="risk-modal-section-heading"><Sparkles size={18}/> MODEL VERDICT & COVERAGE</div>
+          {hasDeepSeekResult ? <>
+            <div className="risk-modal-ai-proof-row">
+              <span>Provider <strong>DeepSeek</strong></span>
+              <span>Model <strong>{provenance?.model || "unspecified"}</strong></span>
+              <span>DeepSeek risk <strong>{modelVerdict || "UNKNOWN"}</strong></span>
+              <span>Final risk <strong>{review?.risk_level || "UNKNOWN"}</strong></span>
+              <span>PR diff <strong>{review?.review_coverage?.diff_complete ? "complete" : "partial / unconfirmed"}</strong></span>
+            </div>
+            {adjusted && <p className="risk-modal-ai-adjustment">The backend adjusted the model verdict after checking critical-path and coverage signals.</p>}
+            {adjustmentReasons.map((reason, index) => <p className="risk-modal-ai-adjustment" key={index}>{reason}</p>)}
+          </> : <p className="risk-modal-ai-adjustment">
+            This review predates DeepSeek provenance tracking. Click Analyze PR again to see
+            the actual model verdict and any backend adjustments.
+          </p>}
+          <small>Change risk and test verification are separate; a LOW-risk verdict does not mean tests passed.</small>
+        </section>}
         <div className="risk-modal-grid">
           <section className="risk-modal-info">
             <div className="risk-modal-section-heading"><FileCode2 size={17}/> POSSIBLY AFFECTED FILES</div>
