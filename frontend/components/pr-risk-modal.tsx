@@ -19,6 +19,8 @@ interface Props {
 export function RiskReviewModal({ repository, number, review, sample, onClose, onViewDetails }: Props) {
   const closeButton = useRef<HTMLButtonElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     const before = document.body.style.overflow;
@@ -26,7 +28,7 @@ export function RiskReviewModal({ repository, number, review, sample, onClose, o
     closeButton.current?.focus();
 
     const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); }
+      if (event.key === "Escape") { event.preventDefault(); onCloseRef.current(); }
       if (event.key !== "Tab" || !cardRef.current) return;
       const focusables = Array.from(cardRef.current.querySelectorAll<HTMLElement>(
         'button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
@@ -44,7 +46,7 @@ export function RiskReviewModal({ repository, number, review, sample, onClose, o
       document.body.style.overflow = before;
       document.removeEventListener("keydown", handleKeydown);
     };
-  }, [onClose]);
+  }, []);
 
   const jobStatus = review?.review_status ?? "PENDING";
   const working = !sample && (jobStatus === "PENDING" || jobStatus === "RUNNING");
@@ -111,7 +113,7 @@ export function RiskReviewModal({ repository, number, review, sample, onClose, o
         </div>
       </section>
       <div className="risk-modal-body">
-        {working && <div className="risk-modal-progress" role="status">
+        {working && <div className="risk-modal-loading-note" role="status">
           <span className="risk-modal-progress-bar"/>
           <span>Analyzing code changes with DeepSeek · Dashboard will update automatically.</span>
         </div>}
