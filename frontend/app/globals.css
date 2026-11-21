@@ -119,7 +119,7 @@
 .risk-modal-diff{margin-top:18px;border:1px solid #37445b;border-radius:12px;overflow:hidden;background:#0a1322}
 .risk-modal-diff>span{display:block;padding:10px 13px;font-size:10px;color:#a8b9d6;background:#1b293e;font-weight:700}
 .risk-modal-diff pre{padding:12px 14px;margin:0;font-size:11px;color:#cdd6e6;line-height:1.75;overflow-x:auto}
-.risk-modal-progress{margin:0 0 16px;display:flex;align-items:center;gap:12px;color:#cbbcff;font-size:12px;background:#272a4c;border:1px solid #6b5c9c;padding:13px;border-radius:10px}
+.risk-modal-loading-note{margin:0 0 16px;display:flex;align-items:center;gap:12px;color:#cbbcff;font-size:12px;background:#272a4c;border:1px solid #6b5c9c;padding:13px;border-radius:10px}
 .risk-modal-progress-bar{height:7px;width:50px;flex-shrink:0;border-radius:99px;background:#aa99ff;animation:risk-pulse 1.2s ease-in-out infinite}
 .risk-modal-footer{flex-shrink:0;border-top:1px solid #34425d;padding:17px 30px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px;background:#111c2d}
 .risk-modal-footer small{max-width:340px;font-size:10px;line-height:1.55;color:#8fa2bc}
