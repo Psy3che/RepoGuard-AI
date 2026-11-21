@@ -15,6 +15,16 @@ export async function GET(request: NextRequest) {
   const [, owner, name] = match;
   const base = process.env.REPOGUARD_API_BASE_URL?.trim().replace(/\/+$/, "");
 
+  // The MVP has no GitHub OAuth/session authorization in Next.js yet. Only
+  // permit authenticated FastAPI proxy access during local development.
+  if (base && process.env.NODE_ENV !== "development") {
+    return NextResponse.json({ error: "Live backend proxy is local-development-only until user login is implemented." }, { status: 503 });
+  }
+  const dashboardToken = process.env.REPOGUARD_DASHBOARD_TOKEN;
+  if (base && !dashboardToken) {
+    return NextResponse.json({ error: "Missing REPOGUARD_DASHBOARD_TOKEN in frontend/.env.local" }, { status: 503 });
+  }
+
   if (!base) {
     if (repository === `${DEMO_DASHBOARD.repository.owner}/${DEMO_DASHBOARD.repository.name}`) {
       return NextResponse.json(DEMO_DASHBOARD, { headers });
@@ -54,7 +64,7 @@ export async function GET(request: NextRequest) {
     url.searchParams.set("repository", repository);
     const response = await fetch(url, {
       cache: "no-store", signal: AbortSignal.timeout(12000),
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", Authorization: `Bearer ${dashboardToken}` },
     });
     if (!response.ok) return NextResponse.json(
       { error: `Backend returned HTTP ${response.status} for ${repository}. Check FastAPI /api/dashboard.` },
