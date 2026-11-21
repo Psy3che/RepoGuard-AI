@@ -1,0 +1,29 @@
+{
+  "id": "demo-review-001",
+  "repo": "demo/ecommerce",
+  "pr_number": 12,
+  "head_sha": "5555555555555555555555555555555555555555",
+  "status": "COMPLETED",
+  "report": {
+    "repository": "demo/ecommerce",
+    "pr_number": 12,
+    "risk_level": "HIGH",
+    "merge_recommendation": "REVIEW_REQUIRED",
+    "summary": "Authentication interface changed; caller compatibility requires verification.",
+    "critical_modules": [
+      {"file": "src/auth.py", "importance": "CRITICAL", "reason": "Authentication", "origin": "AI_SUGGESTED"}
+    ],
+    "affected_files": ["src/payment.py", "src/order.py"],
+    "changed_files": ["src/auth.py"],
+    "dependency_edges": [
+      {"source": "src/payment.py", "target": "src/auth.py", "kind": "import"},
+      {"source": "src/order.py", "target": "src/auth.py", "kind": "import"}
+    ],
+    "findings": [
+      {"file": "src/auth.py", "severity": "HIGH", "status": "SUSPECTED", "reason": "Potential return type change", "recommendation": "Check callers and run authentication tests"}
+    ],
+    "recommendations": ["Verify callers", "Add regression tests"],
+    "coverage": {"complete": false, "code_tested": false},
+    "tests": {"status": "NOT_RUN"}
+  }
+}
