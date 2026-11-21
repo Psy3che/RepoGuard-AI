@@ -21,3 +21,12 @@
 .scan-error{border:1px solid #925356;background:#3d2634;color:#ffc6c9}
 .scan-progress svg,.scan-error svg{flex-shrink:0}
 @media(max-width:700px){.scan-toolbar-button{padding:0 9px;font-size:10px}.scan-toolbar-button span{display:none}}
+
+.ai-architecture-panel{padding:24px 26px;margin-bottom:20px}
+.ai-architecture-panel>.panel-titlebar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.ai-architecture-panel>.panel-titlebar>svg{color:#a995ff}
+.ai-architecture-panel>p{line-height:1.7;color:#c9d5e8;font-size:13px;white-space:pre-wrap}
+.ai-architecture-notes{display:grid;gap:9px;margin:13px 0}
+.ai-architecture-notes>div{display:flex;align-items:flex-start;gap:8px;color:#aebed5;font-size:12px;line-height:1.5}
+.ai-architecture-notes svg{flex-shrink:0;color:#a995ff;margin-top:2px}
+.ai-architecture-panel>small{display:block;color:#91a2b9;font-size:10px;margin-top:12px}
