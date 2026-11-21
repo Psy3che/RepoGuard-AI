@@ -115,7 +115,10 @@ def ai_json(system: str, payload: dict) -> dict:
             )
             response.raise_for_status()
             try:
-                data = response.json()
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    raise DeepSeekOutputError("invalid_http_json_response") from exc
                 choices = data.get("choices") if isinstance(data, dict) else None
                 if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
                     raise DeepSeekOutputError("invalid_response_structure")
