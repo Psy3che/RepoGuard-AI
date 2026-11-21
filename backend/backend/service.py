@@ -5,6 +5,7 @@ from backend.github_api import GitHubApi
 from backend.analyzer import build_repo_map, analyze_pr
 from backend.config import settings
 from backend.security import safe_source_path, scrub_text
+from backend.verification import verify_python_syntax
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,22 @@ def process_pr(review_id: str, payload: dict):
             storage.save_map(repo_key, base_sha, repo_map)
         files = api.pull_files(owner, repo_name, int(pr["number"]), token, settings.max_pr_files)
         report = analyze_pr(repo_map, files, expected_files=pr.get("changed_files"))
+        # Deterministic verification: parse changed Python files without running code.
+        verified = verify_python_syntax(api, owner, repo_name, token, files)
+        report["verification"] = {k: v for k, v in verified.items() if k != "findings"}
+        if verified["findings"]:
+            report["findings"] = (report.get("findings") or []) + verified["findings"]
+            report["risk_level"] = ("CRITICAL" if report.get("risk_level") == "CRITICAL" else "HIGH")
+            report["merge_recommendation"] = "REVIEW_REQUIRED"
+            report["affected_files"] = list(dict.fromkeys(
+                (report.get("affected_files") or []) +
+                [x["file"] for x in verified["findings"]]
+            ))[:40]
+            report.setdefault("risk_signals", []).append({
+                "kind": "VERIFIED_SYNTAX_ERROR", "level": "HIGH",
+                "files": [x["file"] for x in verified["findings"]],
+                "message": "Python syntax verification detected an actual parser error.",
+            })
         # Capture PR metadata for the existing Next.js dashboard. Never store raw
         # unrestricted source or secret/config patches in the report database.
         first_patch = next((

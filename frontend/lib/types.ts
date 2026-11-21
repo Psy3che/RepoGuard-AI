@@ -62,6 +62,17 @@ export interface PullRequestReview {
   updated_at: string;
   risk_level: RiskLevel;
   merge_decision: MergeDecision;
+  review_status?: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  head_sha?: string;
+  dependent_files?: string[];
+  important_touched_files?: string[];
+  verification?: {
+    python_files_checked?: number;
+    python_files_passed?: number;
+    python_files_skipped?: number;
+    syntax_errors?: number;
+    tests_executed?: boolean;
+  };
   summary: string;
   files_changed: number;
   additions: number;
@@ -94,4 +105,18 @@ export interface DashboardPayload {
   modules: RepoModule[];
   dependencies: Dependency[];
   reviews: PullRequestReview[];
+}
+
+export interface OpenPullRequest {
+  number: number;
+  title: string;
+  author: string;
+  head_sha: string;
+  url: string;
+  draft: boolean;
+}
+
+export interface OpenPullRequestsResponse {
+  repository: string;
+  pull_requests: OpenPullRequest[];
 }

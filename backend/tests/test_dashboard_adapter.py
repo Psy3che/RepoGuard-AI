@@ -27,7 +27,7 @@ def test_dashboard_schema_and_repository_scope(monkeypatch):
             "risk_level": "HIGH", "merge_recommendation": "REVIEW_REQUIRED",
             "summary": "Potential behavior change", "affected_files": ["src/auth.py"],
             "changed_files": ["src/auth.py"],
-            "findings": [{"file": "src/auth.py", "severity": "HIGH", "status": "VERIFIED",
+            "findings": [{"file": "src/auth.py", "severity": "HIGH", "status": "SUSPECTED",
                           "reason": "Return type may have changed", "recommendation": "Run tests"}],
             "coverage": {"expected_files": 1},
             "review_context": {
@@ -82,3 +82,24 @@ def test_new_routes_require_bearer(monkeypatch, tmp_path):
         headers = {"Authorization": "Bearer dashboard-secret"}
         assert client.get("/api/dashboard?repository=demo/repo", headers=headers).status_code == 200
         assert client.get("/api/repositories", headers=headers).status_code == 200
+
+
+
+def test_verified_error_maps_to_block_and_real_line():
+    report = {
+        "risk_level": "HIGH", "merge_recommendation": "REVIEW_REQUIRED",
+        "findings": [{"file": "src/auth.py", "severity": "HIGH", "status": "VERIFIED",
+                      "line": 14, "reason": "Python syntax error", "recommendation": "Fix syntax"}],
+        "changed_files": ["src/auth.py"],
+        "verification": {"python_files_checked": 1, "syntax_errors": 1},
+    }
+    item = adapter._review({
+        "id": "verified-1", "pr_number": 5, "head_sha": "a" * 40,
+        "status": "COMPLETED", "report": report,
+        "created_at": "2026-11-21T14:00:00Z", "updated_at": "2026-11-21T14:01:00Z",
+    }, {"src/auth.py": "file-1"})
+    assert item["merge_decision"] == "BLOCK"
+    assert item["findings"][0]["status"] == "VERIFIED"
+    assert item["findings"][0]["line"] == 14
+    assert item["verification"]["syntax_errors"] == 1
+    assert item["review_status"] == "COMPLETED"

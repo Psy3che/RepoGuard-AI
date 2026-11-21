@@ -30,3 +30,54 @@
 .ai-architecture-notes>div{display:flex;align-items:flex-start;gap:8px;color:#aebed5;font-size:12px;line-height:1.5}
 .ai-architecture-notes svg{flex-shrink:0;color:#a995ff;margin-top:2px}
 .ai-architecture-panel>small{display:block;color:#91a2b9;font-size:10px;margin-top:12px}
+
+
+/* GitHub PR risk review workflow */
+.open-pr-panel{padding:21px 23px;margin:0 0 22px}
+.open-pr-header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.open-pr-header strong{font-size:14px;color:#f1f4fc}
+.open-pr-header p{font-size:11px;line-height:1.7;color:#9dafc8;max-width:760px;margin:7px 0 10px}
+.open-pr-header>span{white-space:nowrap;color:#b6a9ff;font-size:11px}
+.open-pr-list{display:grid;gap:9px;max-height:280px;overflow-y:auto}
+.open-pr-item{display:flex;align-items:center;justify-content:space-between;gap:15px;border:1px solid #34415b;background:#172237;border-radius:11px;padding:11px 12px}
+.open-pr-title{display:flex;align-items:center;gap:10px;min-width:0}
+.open-pr-title>svg{color:#aeb4ff;flex-shrink:0}
+.open-pr-title>span{display:grid;gap:4px;min-width:0}
+.open-pr-title strong{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.open-pr-title small{font-size:10px;color:#91a5bf}
+.open-pr-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.open-pr-actions .secondary-button{padding:8px 10px;font-size:11px;min-height:0}
+.open-pr-github{color:#bca8ff;display:inline-flex;align-items:center}
+.pr-reviewed-pill,.pr-unreviewed-pill{padding:5px 8px;border-radius:999px;font-size:10px;white-space:nowrap}
+.pr-reviewed-pill{background:#17372f;color:#8be5c0}
+.pr-unreviewed-pill{background:#423529;color:#f0ca8e}
+.open-pr-error{border:1px solid #8b4b59;background:#432936;color:#ffcbd2;border-radius:8px;font-size:11px;padding:10px}
+.open-pr-empty{font-size:11px;color:#93a7be;margin:10px 0}
+.pr-decision-banner{display:flex;align-items:flex-start;gap:13px;padding:18px;border-radius:13px;border:1px solid #52627f;background:#1b263d;margin:0 0 18px}
+.pr-decision-banner>svg{flex-shrink:0;margin-top:2px}
+.pr-decision-banner strong{font-size:12px;letter-spacing:.03em}
+.pr-decision-banner p{font-size:12px;line-height:1.65;margin:7px 0 0;color:#c7d4e5}
+.pr-decision-pass{background:#18392f;border-color:#398367;color:#9df2ca}
+.pr-decision-warning{background:#3c3023;border-color:#a27e45;color:#ffdc9d}
+.pr-decision-block{background:#442731;border-color:#a24f62;color:#ffc2ca}
+.pr-decision-unknown{background:#303246;border-color:#696e95;color:#d5d4ff}
+.pr-decision-pending{background:#26284c;border-color:#6158a1;color:#c6baff}
+.pr-impact-panel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:16px;margin-bottom:15px}
+.pr-impact-column{min-width:0;padding:7px 11px;border-right:1px solid #32415a}
+.pr-impact-column:last-child{border:0}
+.pr-impact-column strong{font-size:10px;color:#bdafff}
+.pr-impact-column p{font-size:11px;color:#b7c7d9;line-height:1.6;overflow-wrap:anywhere}
+.review-state-working{display:flex;align-items:center;gap:6px;color:#d4caff;font-size:10px}
+.review-state-failed{color:#f2a2ac;font-size:10px}
+.pr-notification{position:fixed;top:90px;right:22px;z-index:80;max-width:min(430px,calc(100vw - 35px));display:flex;align-items:flex-start;gap:10px;background:#222b41;border:1px solid #606b89;border-radius:13px;padding:13px 12px;box-shadow:0 17px 46px #000b}
+.pr-notification>svg{flex-shrink:0;color:#f1c67b}
+.pr-notification-pass{border-color:#46947e}
+.pr-notification-pass>svg{color:#84e6b8}
+.pr-notification-block{border-color:#bd5e6c}
+.pr-notification-block>svg{color:#ff929e}
+.pr-notification span{flex:1;min-width:0}
+.pr-notification strong,.pr-notification small{display:block}
+.pr-notification strong{font-size:12px}
+.pr-notification small{font-size:11px;line-height:1.5;color:#c5d0e0;margin-top:4px}
+.pr-notification button{flex-shrink:0;background:transparent;border:0;color:#d7cafb;font-size:11px;padding:4px 2px}
+@media(max-width:850px){.open-pr-item{align-items:flex-start;flex-direction:column}.open-pr-actions{width:100%;justify-content:flex-end}.pr-impact-panel{grid-template-columns:1fr}.pr-impact-column{border-right:0;border-bottom:1px solid #32415a}.pr-impact-column:last-child{border:0}}

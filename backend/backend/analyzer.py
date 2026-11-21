@@ -178,6 +178,28 @@ def _risk_level(v):
     return v if v in ("LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN") else "UNKNOWN"
 
 
+def downstream_dependents(edges: list[dict], changed: list[str], limit: int = 40) -> list[str]:
+    """Find sampled importers of changed modules. Source -> target means imports."""
+    reverse: dict[str, set[str]] = {}
+    for edge in edges[:100]:
+        source, target = edge.get("source"), edge.get("target")
+        if isinstance(source, str) and isinstance(target, str):
+            reverse.setdefault(target, set()).add(source)
+    pending = list(dict.fromkeys(changed))
+    reached = set(pending)
+    impacted = []
+    while pending and len(impacted) < limit:
+        current = pending.pop(0)
+        for dependent in sorted(reverse.get(current, ())):
+            if dependent not in reached:
+                reached.add(dependent)
+                pending.append(dependent)
+                impacted.append(dependent)
+                if len(impacted) >= limit:
+                    break
+    return impacted
+
+
 def analyze_pr(repo_map: dict, changed_files: list[dict], *, expected_files: int | None = None):
     """Model-assisted risk report with hard limits and honest coverage status."""
     file_names = [x.get("filename", "") for x in changed_files]
@@ -247,8 +269,37 @@ def analyze_pr(repo_map: dict, changed_files: list[dict], *, expected_files: int
     affected = [x for x in affected if isinstance(x, str) and x in provided_names][:30] if isinstance(affected, list) else []
     suggestions = model.get("recommendations", [])
     suggestions = [str(x)[:350] for x in suggestions[:8]] if isinstance(suggestions, list) else []
-    if important_touched and level == "LOW":
-        level = "MEDIUM"  # Caution: business-critical code touched, even without a known defect
+
+    # Estimate a bounded blast radius using only actual sampled import edges.
+    # An importer can be affected when a module it imports changes.
+    dependent_paths = downstream_dependents(repo_map.get("dependency_edges") or [], file_names)
+    valid_paths = provided_names
+    dependents = [p for p in dependent_paths if p in valid_paths][:30]
+    affected = list(dict.fromkeys(affected + file_names + dependents))[:40]
+    signals = []
+    if important_touched:
+        signals.append({
+            "kind": "CRITICAL_MODULE_CHANGED",
+            "level": "MEDIUM",
+            "files": important_touched[:12],
+            "message": "Changed files include modules marked high importance in a sampled repository map.",
+        })
+    if dependents:
+        signals.append({
+            "kind": "DEPENDENCY_IMPACT",
+            "level": "MEDIUM",
+            "files": dependents[:12],
+            "message": "These sampled files import changed modules and may be affected.",
+        })
+    if incomplete:
+        signals.append({
+            "kind": "INCOMPLETE_DIFF",
+            "level": "UNKNOWN",
+            "files": [],
+            "message": "Not all PR changes were available for semantic review.",
+        })
+    if (important_touched or dependents) and level == "LOW":
+        level = "MEDIUM"  # Review potential blast radius, not proof of a defect.
     if incomplete or repo_map.get("ai_status") != "OK":
         if level == "LOW":
             level = "UNKNOWN"
@@ -266,6 +317,9 @@ def analyze_pr(repo_map: dict, changed_files: list[dict], *, expected_files: int
         "summary": str(model.get("summary", "AI risk review completed"))[:1000],
         "critical_modules": repo_map.get("critical_modules", [])[:50],
         "affected_files": affected,
+        "dependent_files": dependents,
+        "important_touched_files": important_touched,
+        "risk_signals": signals,
         "changed_files": file_names,
         "findings": findings,
         "recommendations": suggestions,

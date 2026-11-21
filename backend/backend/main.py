@@ -14,6 +14,7 @@ from backend import storage
 from backend.service import process_pr
 from backend.dashboard_adapter import dashboard as build_dashboard, installed_repositories
 from backend.manual_scan import queue_scan, latest_scan
+from backend.pr_review import open_pull_requests, queue_pull_request_review
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("repoguard")
@@ -135,3 +136,19 @@ def trigger_manual_scan(owner: str, repo: str, background_tasks: BackgroundTasks
 def manual_scan_status(owner: str, repo: str):
     """Status polling endpoint for the local Next.js dashboard."""
     return latest_scan(owner, repo)
+
+
+
+@app.get("/api/repositories/{owner}/{repo}/pulls",
+         dependencies=[Depends(dashboard_auth)])
+def available_open_pulls(owner: str, repo: str):
+    """List open PRs available for an on-demand local review."""
+    return open_pull_requests(owner, repo)
+
+
+@app.post("/api/repositories/{owner}/{repo}/pulls/{pr_number}/analyze",
+          status_code=202, dependencies=[Depends(dashboard_auth)])
+def analyze_open_pull(owner: str, repo: str, pr_number: int,
+                      background_tasks: BackgroundTasks):
+    """Start a review of an open PR; webhook events still auto-review normally."""
+    return queue_pull_request_review(owner, repo, pr_number, background_tasks)

@@ -12,7 +12,7 @@ import {
   X, XCircle, Zap,
 } from "lucide-react";
 import { ImpactGraph } from "./impact-graph";
-import type { DashboardPayload, Finding, Importance, PullRequestReview, RepoModule, RepositoryListResponse, RepositoryOption, RiskLevel } from "@/lib/types";
+import type { DashboardPayload, Finding, Importance, OpenPullRequest, OpenPullRequestsResponse, PullRequestReview, RepoModule, RepositoryListResponse, RepositoryOption, RiskLevel } from "@/lib/types";
 
 type View = "overview" | "architecture" | "reviews" | "policies";
 
@@ -31,9 +31,9 @@ function RiskTag({ risk, compact = false }: { risk: RiskLevel | Importance; comp
 
 function StatusTag({ decision }: { decision: PullRequestReview["merge_decision"] }) {
   const values = {
-    PASS: { label: "Check passed", Icon: CheckCircle2, css: "status-pass" },
-    REVIEW_REQUIRED: { label: "Needs review", Icon: AlertTriangle, css: "status-review" },
-    BLOCK: { label: "Block merge", Icon: XCircle, css: "status-block" },
+    PASS: { label: "No blocking findings (sampled)", Icon: CheckCircle2, css: "status-pass" },
+    REVIEW_REQUIRED: { label: "Human review required", Icon: AlertTriangle, css: "status-review" },
+    BLOCK: { label: "Verified issue — do not merge", Icon: XCircle, css: "status-block" },
     UNKNOWN: { label: "Not verified", Icon: HelpCircle, css: "status-unknown" },
   };
   const item = values[decision];
@@ -60,7 +60,11 @@ function ReviewRow({ review, active, onClick }: { review: PullRequestReview; act
       <div className="review-title">{review.title}</div>
       <div className="review-meta"><span>#{review.number}</span><span className="bullet">·</span><span>{review.author}</span><span className="bullet">·</span><span>{review.files_changed} files</span></div>
     </div>
-    <RiskTag risk={review.risk_level} compact />
+    {review.review_status === "PENDING" || review.review_status === "RUNNING"
+      ? <span className="review-state-working"><RefreshCw size={12} className="spinning"/> Analyzing</span>
+      : review.review_status === "FAILED"
+        ? <span className="review-state-failed">Analysis failed</span>
+        : <RiskTag risk={review.risk_level} compact />}
     <ChevronRight className="review-chevron" size={16} />
   </button>;
 }
@@ -72,6 +76,32 @@ function FindingCard({ finding }: { finding: Finding }) {
     <p>{finding.explanation}</p>
     <div className="finding-code"><FileCode2 size={13} /><span>{finding.file}{finding.line ? `:${finding.line}` : ""}</span></div>
     <div className="finding-fix"><Sparkles size={15} /><span>{finding.recommendation}</span></div>
+  </div>;
+}
+
+function RiskDecisionNotice({ review, stale }: { review: PullRequestReview; stale: boolean }) {
+  const working = review.review_status === "PENDING" || review.review_status === "RUNNING";
+  const failed = review.review_status === "FAILED";
+  const status = stale || failed ? "unknown" : working ? "pending" :
+    review.merge_decision === "BLOCK" ? "block" :
+    review.merge_decision === "PASS" ? "pass" :
+    review.merge_decision === "REVIEW_REQUIRED" ? "warning" : "unknown";
+  const text = stale ? "This PR has new commits since the last analysis. Review the latest version before merging." :
+    failed ? "The analysis failed. No merge conclusion is available; rerun the review." :
+    working ? "RepoGuard is reviewing the changed code. No merge conclusion yet." :
+    status === "block" ? "Verified code issue detected. Fix it and rerun the analysis before merging." :
+    status === "pass" ? "No blocking findings detected in the reviewed changes. This does not prove the code is safe or correct." :
+    status === "warning" ? "Potential impact detected. A human should inspect the changed logic and related modules." :
+    "Analysis coverage is incomplete or risk is unknown. Manual review is required.";
+  const heading = stale ? "OUTDATED REVIEW" : failed ? "ANALYSIS FAILED" :
+    working ? "ANALYSIS IN PROGRESS" :
+    status === "block" ? "DO NOT MERGE — VERIFIED ISSUE" :
+    status === "pass" ? "NO BLOCKING FINDINGS IN REVIEWED SCOPE" :
+    status === "warning" ? `RISK WARNING — ${review.risk_level}` : "RISK NOT VERIFIED";
+  return <div className={`pr-decision-banner pr-decision-${status}`} role="alert">
+    {status === "pass" ? <ShieldCheck size={23}/> :
+      status === "pending" ? <RefreshCw className="spinning" size={23}/> : <ShieldAlert size={23}/>}
+    <div><strong>{heading}</strong><p>{text}</p></div>
   </div>;
 }
 
@@ -198,12 +228,56 @@ function Architecture({ data, selectedModule, setSelectedModule, selectedReviewI
   </>;
 }
 
-function Reviews({ data, selectedReviewId, onSelectReview }: { data: DashboardPayload; selectedReviewId: string; onSelectReview: (id: string) => void }) {
+function Reviews({ data, selectedReviewId, onSelectReview, repository, isGitHubApp, onReviewQueued }: {
+  data: DashboardPayload; selectedReviewId: string; onSelectReview: (id: string) => void;
+  repository: string; isGitHubApp: boolean; onReviewQueued: () => void;
+}) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("ALL");
   const [copied, setCopied] = useState(false);
   const reviews = useMemo(() => data.reviews.filter((r) => (filter === "ALL" || r.risk_level === filter) && `${r.title} ${r.author} ${r.number}`.toLowerCase().includes(query.toLowerCase())).sort((a,b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()), [data.reviews, query, filter]);
   const selected = data.reviews.find((r) => r.id === selectedReviewId) || data.reviews[0];
+  const [openPRs, setOpenPRs] = useState<OpenPullRequest[]>([]);
+  const [prLoading, setPrLoading] = useState(false);
+  const [reviewingNumber, setReviewingNumber] = useState<number | null>(null);
+  const [prError, setPrError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isGitHubApp) { setOpenPRs([]); return; }
+    let cancelled = false;
+    setPrLoading(true);
+    void fetch(`/api/pull-requests?repository=${encodeURIComponent(repository)}`, { cache: "no-store" })
+      .then(async response => {
+        const payload = await response.json() as OpenPullRequestsResponse & { error?: string };
+        if (!response.ok) throw new Error(payload.error || "Cannot fetch open pull requests.");
+        if (!cancelled) { setOpenPRs(payload.pull_requests || []); setPrError(null); }
+      })
+      .catch(error => {
+        if (!cancelled) setPrError(error instanceof Error ? error.message : "Cannot fetch open pull requests.");
+      })
+      .finally(() => { if (!cancelled) setPrLoading(false); });
+    return () => { cancelled = true; };
+  }, [repository, isGitHubApp]);
+
+  const analyzeOpenPR = async (number: number) => {
+    setReviewingNumber(number);
+    setPrError(null);
+    try {
+      const response = await fetch(
+        `/api/pull-requests?repository=${encodeURIComponent(repository)}&number=${number}`,
+        { method: "POST", cache: "no-store" },
+      );
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Could not queue the review.");
+      onReviewQueued();
+    } catch (error) {
+      setPrError(error instanceof Error ? error.message : "Could not queue the review.");
+    } finally {
+      setReviewingNumber(null);
+    }
+  };
+  const liveHead = selected ? openPRs.find(p => p.number === selected.number)?.head_sha : undefined;
+  const stale = Boolean(liveHead && selected?.head_sha && liveHead !== selected.head_sha);
   const download = () => {
     if (!selected) return;
     const blob = new Blob([JSON.stringify(selected, null, 2)], { type: "application/json" });
@@ -220,16 +294,50 @@ function Reviews({ data, selectedReviewId, onSelectReview }: { data: DashboardPa
     try { await navigator.clipboard.writeText(text); setCopied(true); window.setTimeout(() => setCopied(false), 1900); } catch { setCopied(false); }
   };
   return <>
-    <SectionHead eyebrow="PULL REQUEST INTELLIGENCE" title="Code review workspace" caption="Investigate change risk, impacted modules, evidence, and merge readiness." right={<div className="counter-chip"><GitPullRequest size={14}/> {data.reviews.length} reviews</div>}/>
+    <SectionHead eyebrow="PULL REQUEST INTELLIGENCE" title="Code review workspace" caption="Investigate changed logic, possible blast radius, verified syntax errors and merge advice." right={<div className="counter-chip"><GitPullRequest size={14}/> {data.reviews.length} reviews</div>}/>
+    {isGitHubApp && <section className="open-pr-panel panel">
+      <div className="open-pr-header"><div><strong>Open GitHub Pull Requests</strong>
+        <p>New PRs and commits on open PRs are reviewed automatically when the Webhook is active. You can also analyze a PR manually.</p>
+      </div><span>{prLoading ? "Loading..." : `${openPRs.length} open`}</span></div>
+      {prError && <p className="open-pr-error" role="alert">{prError}</p>}
+      <div className="open-pr-list">
+        {!prLoading && !openPRs.length && <p className="open-pr-empty">No open PRs found. Create a PR on GitHub to begin change-risk analysis.</p>}
+        {openPRs.slice(0, 12).map(pr => {
+          const latest = data.reviews.find(r => r.number === pr.number);
+          const isUpToDate = latest?.head_sha === pr.head_sha && latest?.review_status === "COMPLETED";
+          return <div key={pr.number} className="open-pr-item">
+            <span className="open-pr-title"><GitPullRequest size={16}/><span><strong>#{pr.number} {pr.title}</strong><small>{pr.author}{pr.draft ? " · Draft" : ""}</small></span></span>
+            <div className="open-pr-actions"><span className={isUpToDate ? "pr-reviewed-pill" : "pr-unreviewed-pill"}>
+              {isUpToDate ? "Reviewed" : "Review needed"}</span>
+            <button onClick={() => void analyzeOpenPR(pr.number)} disabled={reviewingNumber !== null}
+              type="button" className="secondary-button">{reviewingNumber === pr.number ? "Analyzing..." : isUpToDate ? "Re-analyze PR" : "Analyze PR"}</button>
+            <a className="open-pr-github" href={pr.url} target="_blank" rel="noreferrer" aria-label={`Open PR #${pr.number} on GitHub`}><ExternalLink size={15}/></a>
+            </div>
+          </div>;
+        })}
+      </div>
+    </section>}
     <div className="reviews-layout"><div className="panel reviews-list-panel"><div className="reviews-list-head"><div className="searchbox"><Search size={16}/><input placeholder="Search PRs..." aria-label="Search pull requests" value={query} onChange={(e) => setQuery(e.target.value)}/></div><div className="filter-strip">{["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"].map((type) => <button key={type} className={filter === type ? "filter-active" : ""} onClick={() => setFilter(type)}>{type === "ALL" ? "All" : riskLabel[type as RiskLevel]}</button>)}</div></div><div className="reviews-scroll">{reviews.length ? reviews.map((review) => <ReviewRow key={review.id} review={review} active={selected.id === review.id} onClick={() => onSelectReview(review.id)}/>) : <EmptyState heading="No matching pull requests" detail="Adjust your search or risk filter." />}</div><div className="reviews-list-foot"><CircleDot size={13} /> AI suggestions require independent verification.</div></div>
-      <div className="review-content">{selected ? <><div className="review-main-card panel"><div className="review-detail-top"><div className="review-number"><GitPullRequest size={17}/> PULL REQUEST #{selected.number}</div><RiskTag risk={selected.risk_level}/></div><h2>{selected.title}</h2><div className="review-detail-meta"><span><GitBranch size={14}/>{selected.branch}</span><span>by {selected.author}</span><span><Time value={selected.updated_at}/></span></div><div className="summary-box"><div className="summary-head"><Sparkles size={16}/> AI RISK SUMMARY</div><p>{selected.summary}</p></div><div className="merge-bar"><StatusTag decision={selected.merge_decision}/><div>{selected.files_changed} files changed <span className="additions">+{selected.additions}</span><span className="deletions">−{selected.deletions}</span></div></div></div>
+      <div className="review-content">{selected ? <>
+      <RiskDecisionNotice review={selected} stale={stale}/>
+      <div className="review-main-card panel"><div className="review-detail-top"><div className="review-number"><GitPullRequest size={17}/> PULL REQUEST #{selected.number}</div><RiskTag risk={selected.risk_level}/></div><h2>{selected.title}</h2><div className="review-detail-meta"><span><GitBranch size={14}/>{selected.branch}</span><span>by {selected.author}</span><span><Time value={selected.updated_at}/></span></div><div className="summary-box"><div className="summary-head"><Sparkles size={16}/> AI RISK SUMMARY</div><p>{selected.summary}</p></div><div className="merge-bar"><StatusTag decision={stale ? "UNKNOWN" : selected.merge_decision}/><div>{selected.files_changed} files changed <span className="additions">+{selected.additions}</span><span className="deletions">−{selected.deletions}</span></div></div></div>
+      <div className="pr-impact-panel panel">
+        <div className="pr-impact-column"><strong>Core modules changed</strong>
+          <p>{selected.important_touched_files?.length ? selected.important_touched_files.join(", ") : "No high-importance modules identified in sampled map."}</p></div>
+        <div className="pr-impact-column"><strong>Potential downstream impact</strong>
+          <p>{selected.dependent_files?.length ? selected.dependent_files.join(", ") : "No dependent files identified in sampled import graph."}</p></div>
+        <div className="pr-impact-column"><strong>Code verification</strong><p>
+          Python syntax: {selected.verification?.python_files_checked ?? 0} files parsed,
+          {" "}{selected.verification?.syntax_errors ?? 0} errors.
+          Runtime and unit tests are not executed by RepoGuard.</p></div>
+      </div>
       <div className="review-quick-actions"><button onClick={copySummary}><Clipboard size={15}/>{copied ? "Copied" : "Copy summary"}</button><button onClick={download}><Download size={15}/>Export JSON</button></div>
       <div className="risk-head"><div><span className="eyebrow">CHANGE FINDINGS</span><h3>Analysis evidence <span>({selected.findings.length})</span></h3></div><span className="small-note">Suspected ≠ verified</span></div>
-      {selected.findings.length ? <div className="findings-grid">{selected.findings.map((f) => <FindingCard finding={f} key={f.id}/>)}</div> : <div className="panel no-findings"><CheckCircle2 size={22}/><div><strong>No material risk found in the available context</strong><p>Checks passing does not guarantee correctness. Unanalyzed files or missing tests may still hide problems.</p></div></div>}
+      {selected.findings.length ? <div className="findings-grid">{selected.findings.map((f) => <FindingCard finding={f} key={f.id}/>)}</div> : <div className="panel no-findings"><CheckCircle2 size={22}/><div><strong>No verified findings recorded in available context</strong><p>Analysis may be pending or incomplete. Runtime and unit tests are not run; absence of findings is not proof of safety.</p></div></div>}
       <div className="risk-head impact-heading"><div><span className="eyebrow">BLAST RADIUS</span><h3>Potentially affected modules <span>({selected.affected_module_ids.length})</span></h3></div></div>
       <div className="impact-chips">{selected.affected_module_ids.map((id) => { const m = data.modules.find((x) => x.id === id); return m ? <span className="impact-chip" key={id}><Network size={14}/>{m.name}<RiskTag risk={m.importance} compact/></span> : <span className="impact-chip" key={id}>{id}</span>; })}</div>
       <div className="risk-head diff-heading"><div><span className="eyebrow">DIFF CONTEXT</span><h3>Code changes</h3></div></div><DiffViewer review={selected}/>
-      </> : <EmptyState heading="No PR selected" detail="Select a pull request to inspect its risk report."/>}</div></div>
+      </> : <EmptyState heading="No review yet" detail="Select an open GitHub PR above, then click Analyze PR. New PRs are also reviewed automatically when your GitHub Webhook is configured."/>}</div></div>
   </>;
 }
 
@@ -258,6 +366,8 @@ export function Dashboard() {
   const [repoError, setRepoError] = useState<string | null>(null);
   const [githubOwner, setGithubOwner] = useState("");
   const requestId = useRef(0);
+  const [reviewToast, setReviewToast] = useState<{ id: string; number: number; level: RiskLevel; decision: string } | null>(null);
+  const observedReviews = useRef<Map<string, string>>(new Map());
   const [scanState, setScanState] = useState<ManualScanState>({ repository: null, status: "IDLE" });
 
   const loadRepositories = useCallback(async (owner?: string) => {
@@ -297,6 +407,7 @@ export function Dashboard() {
       }
       if (current !== requestId.current) return;
       setData(payload);
+      observedReviews.current = new Map(payload.reviews.map(r => [r.id, r.review_status || "COMPLETED"]));
       setSelectedReviewId(payload.reviews[0]?.id || "");
       setSelectedModule(payload.modules[0]?.id || null);
       setFetchState({ status: "ready" });
@@ -382,6 +493,40 @@ export function Dashboard() {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [selectedRepository, scanState.repository, scanState.status, load]);
 
+  // Pull Request events can arrive from a GitHub Webhook while the user is on the dashboard.
+  // Lightweight polling updates the risk badges and displays a new-result toast.
+  useEffect(() => {
+    if (!selectedRepository || repositorySource !== "github-app") return;
+    const repository = selectedRepository;
+    let cancelled = false;
+    let busy = false;
+    const tick = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const response = await fetch(`/api/dashboard?repository=${encodeURIComponent(repository)}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const payload = await response.json() as DashboardPayload;
+        if (`${payload.repository.owner}/${payload.repository.name}`.toLowerCase() !== repository.toLowerCase() || cancelled) return;
+        for (const review of payload.reviews) {
+          const previous = observedReviews.current.get(review.id);
+          if (review.review_status === "COMPLETED" && previous !== "COMPLETED") {
+            setReviewToast({
+              id: review.id, number: review.number, level: review.risk_level, decision: review.merge_decision,
+            });
+          }
+          observedReviews.current.set(review.id, review.review_status || "COMPLETED");
+        }
+        setData(payload);
+      } catch { /* Next successful poll can refresh. */ }
+      finally { busy = false; }
+    };
+    const timer = window.setInterval(() => { void tick(); }, view === "reviews" ? 5000 : 12000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [selectedRepository, repositorySource, view]);
+
   useEffect(() => { void loadRepositories(); }, [loadRepositories]);
   useEffect(() => { if (selectedRepository) void load(selectedRepository); }, [selectedRepository, load]);
 
@@ -416,17 +561,31 @@ export function Dashboard() {
       </button>}
       {data && <span className={`mode-tag ${data.mode === "demo" ? "mode-demo" : data.mode === "unscanned" ? "mode-unscanned" : "mode-live"}`}><span/> {data.mode === "demo" ? "DEMO DATA" : data.mode === "unscanned" ? "NOT SCANNED" : "LIVE BACKEND"}</span>}<button className={`toolbar-button ${refreshing ? "spinning" : ""}`} onClick={() => selectedRepository && void load(selectedRepository)} disabled={refreshing || !selectedRepository} title="Refresh analysis" aria-label="Refresh analysis"><RefreshCw size={17}/></button><span className="topbar-divider"/><span className="topbar-avatar">RG</span></div></header>
       <main className="page-content">
+        {reviewToast && <div role="alert" className={`pr-notification pr-notification-${reviewToast.decision === "BLOCK" ? "block" : reviewToast.decision === "PASS" ? "pass" : "warn"}`}>
+          {reviewToast.decision === "PASS" ? <CheckCircle2 size={21}/> : <AlertTriangle size={21}/>}
+          <span><strong>PR #{reviewToast.number} analysis complete</strong>
+          <small>{reviewToast.decision === "PASS" ? "No blocking findings in reviewed scope — tests still required." :
+            reviewToast.decision === "BLOCK" ? "Verified issue: do not merge before fixing." :
+            `Risk level ${reviewToast.level}: manual review recommended.`}</small></span>
+          <button type="button" onClick={() => {
+            setSelectedReviewId(reviewToast.id); setView("reviews"); setReviewToast(null);
+          }}>View review</button>
+          <button aria-label="Dismiss notification" type="button" onClick={() => setReviewToast(null)}><X size={17}/></button>
+        </div>}
         {scanning && <div className="scan-progress" role="status"><RefreshCw size={17} className="spinning"/> Analyzing {selectedRepository}: indexing code and generating an AI architecture map...</div>}
         {scanError && <div className="scan-error" role="alert"><AlertTriangle size={17}/> Repository scan failed: {scanError}</div>}
         {fetchState.status === "error" && <div className="load-error"><AlertOctagon size={25}/><div><strong>Backend connection failed</strong><p>{fetchState.message}</p><p>Check your repository permissions, FastAPI endpoints and REPOGUARD_API_BASE_URL.</p></div><button className="secondary-button" onClick={() => selectedRepository ? void load(selectedRepository) : void loadRepositories()}>Retry <RefreshCw size={15}/></button></div>}
         {(fetchState.status === "loading" || repoLoading) && !data && <div className="loading-screen"><div className="spinner"/><h2>Loading repository intelligence</h2><p>Preparing modules and pull request findings...</p></div>}
         {data && <>
           <div className="page-overview"><div className="page-repo-line"><span className="line-badge"><GitBranch size={14}/>{repo?.default_branch || "main"}</span><span className="tiny-divider"/><span>{repo?.owner}/{repo?.name}</span><span className="tiny-divider"/><span>{repo?.last_analyzed_at ? <>Last scan <Time value={repo.last_analyzed_at}/></> : "Not analyzed"}</span></div><span className="analysis-disclaimer"><CircleDot size={12}/>{data.mode === "demo" ? "All results are simulated" : data.mode === "unscanned" ? "GitHub metadata only — no AI scan" : "AI findings may need verification"}</span></div>
-          {data.mode === "unscanned" ? <UnscannedRepository owner={data.repository.owner} name={data.repository.name}
+          {data.mode === "unscanned" && view !== "reviews" ? <UnscannedRepository owner={data.repository.owner} name={data.repository.name}
             canScan={canScan} scanning={scanning} onScan={() => void startScan()}/> : <>
           {view === "overview" && <Overview data={data} goToReview={goToReview} goToReviews={() => go("reviews")} goToArchitecture={() => go("architecture")}/>}
           {view === "architecture" && <Architecture data={data} selectedModule={selectedModule} setSelectedModule={setSelectedModule} selectedReviewId={selectedReviewId} onReviewChange={(id) => setSelectedReviewId(id)}/>}
-          {view === "reviews" && <Reviews data={data} selectedReviewId={selectedReviewId} onSelectReview={setSelectedReviewId}/>}
+          {view === "reviews" && <Reviews data={data} selectedReviewId={selectedReviewId}
+            onSelectReview={setSelectedReviewId} repository={selectedRepository || `${data.repository.owner}/${data.repository.name}`}
+            isGitHubApp={repositorySource === "github-app"}
+            onReviewQueued={() => selectedRepository && void load(selectedRepository)}/>}
           {view === "policies" && <Policies data={data}/>}
           </>}
           <footer className="page-footer"><span>RepoGuard AI © 2026</span><span><ShieldCheck size={13}/> Safe merging starts with clear evidence</span><span>{selectedReview ? `Selected PR #${selectedReview.number}` : "Repository intelligence"}</span></footer>

@@ -145,7 +145,38 @@ curl -H "Authorization: Bearer YOUR_DASHBOARD_TOKEN" \
 
 **重要限制：** API 仍使用单一管理员 Token，没有面向多用户的 OAuth 授权控制，因此仅可在本地开发环境中使用。仓库分析只抽样部分代码及显式导入关系，不能代替全面静态分析、测试和安全审计。模型调用失败时任务状态为 FAILED，不展示假的 AI 结果。扫描需要有效的 DeepSeek API Key；当前 PR 分析功能保留。
 
-## 5. 运行测试
+## 5. Pull Request 合并风险评估（自动 + 手动）
+
+**自动触发：** GitHub App 勾选 `Pull requests` Webhook 事件并配置可访问
+`/webhook` 的 HTTPS URL。用户创建 PR、重新打开 PR、将 Draft 转为 Ready
+或继续向已有 PR 分支 push 提交（`synchronize`）时，RepoGuard 会重新评估
+PR 的代码 diff，生成 GitHub Check `RepoGuard AI / Risk Scan`。**单纯向无 PR 的分支
+push 不会自动触发此版本的 PR 合并评估**，需先创建 PR。
+
+**手动回退演示（无需 Webhook Tunnel）：** Dashboard → `Pull requests` → 选择
+GitHub App 已安装的仓库 → 在 Open GitHub Pull Requests 中点 `Analyze PR`。
+同一条 FastAPI + DeepSeek 分析流水线会运行并回写 GitHub Check。
+前端每隔数秒读取最新结果，并为新完成的 PR 提示合并风险。
+
+后端 API（均需 `Authorization: Bearer DASHBOARD_TOKEN`）：
+- `GET /api/repositories/{owner}/{repo}/pulls`：列出前 30 条开放 PR
+- `POST /api/repositories/{owner}/{repo}/pulls/{number}/analyze`：手动提交 PR 检查任务
+- `GET /api/dashboard?repository=owner/repo`：查看风险等级、候选影响范围、验证结果
+
+GitHub Check / Dashboard 风险提示：
+- **LOW + 已获取完整 PR diff**：未发现已检查范围内的阻断项；显示绿色通过，但不等于无风险或代码测试通过
+- **MEDIUM / HIGH / CRITICAL 的纯 AI 推断**：风险警告，需人工复核；不伪装成已验证错误，也不自动拒绝合并
+- **确定性 Python 语法错误**：`VERIFIED`、附具体文件/行号的 GitHub annotation，并提示先修复再合并
+- **UNKNOWN / diff 不完整 / DeepSeek 失败**：不给绿色通过结论；提示未验证/需重新分析
+
+重要限制：不执行陌生 PR 的代码，不验证业务逻辑正确性；仅对本次改动的少量 Python
+文件进行语法解析，对其他语言和语义影响主要为抽样 AI 判断。风险依赖图是有限的显式 import
+抽样；建议人工核对、运行 CI 和功能测试，并由维护者做最终合并决定。GitHub Check
+只有在 GitHub 仓库设置为 required status check 后才能参与合并门禁，RepoGuard
+本身**不会自动合并或拒绝合并 PR**。不使用 GitHub Issues Write 权限，所以目前的
+风险“标签”以 Check 名称/状态和 Dashboard 徽章呈现，而不是自动写入 GitHub Label。
+
+## 6. 运行测试
 
 ```bash
 pytest -q
@@ -153,7 +184,7 @@ pytest -q
 
 测试使用模拟 Webhook/DeepSeek，不会调用真实 API，也不会产生 DeepSeek 费用。
 
-## 6. 风险评估解释
+## 7. 风险评估解释
 
 - GitHub PR 只发送经筛选/脱敏、长度受限的 patch 摘要和仓库代码片段到 DeepSeek。
 - 文件重要性规则是启发式，模型推荐的关键模块会标记 `AI_SUGGESTED`。
@@ -166,7 +197,7 @@ pytest -q
 - FastAPI `BackgroundTasks` 仅适合演示，本地重启会丢失未完成任务。生产环境请换成独立任务队列并设置重试/死信机制。
 - 正式用于私有仓库前，需要进一步完善敏感信息检测、组织策略、数据保留和用户授权；正则脱敏无法确保没有任何秘密信息流入第三方模型。
 
-## 7. 代码结构
+## 8. 代码结构
 
 ```text
 backend/
@@ -181,7 +212,7 @@ tests/
 examples/
 ```
 
-## 8. 官方接口参考
+## 9. 官方接口参考
 
 - DeepSeek API: https://api-docs.deepseek.com/en/
 - DeepSeek JSON Output: https://api-docs.deepseek.com/guides/json_mode/

@@ -105,34 +105,69 @@ class GitHubApi:
         )["id"]
 
     def complete_check(self, owner: str, repo: str, check_id: int, token: str, report: dict):
+        """Publish risk badges and evidence in GitHub Checks, not unverified merge blockers."""
         validate_repo(owner, repo)
         level = report.get("risk_level", "UNKNOWN")
-        verified = any(x.get("status") == "VERIFIED" for x in report.get("findings", []))
-        # Only verified serious issues should fail a required merge check.
-        if verified and level in ("HIGH", "CRITICAL"):
+        coverage = report.get("coverage") or {}
+        findings = [x for x in (report.get("findings") or []) if isinstance(x, dict)][:20]
+        verified = [x for x in findings if x.get("status") == "VERIFIED"]
+        has_verified_failure = any(x.get("severity") in ("HIGH", "CRITICAL") for x in verified)
+        clear_scope = level == "LOW" and bool(coverage.get("diff_complete"))
+        if has_verified_failure:
             conclusion = "action_required"
-        elif level == "LOW" and report.get("coverage", {}).get("diff_complete"):
+            title = "❌ Verified issue — changes required"
+        elif clear_scope:
             conclusion = "success"
+            title = "✅ No blocking findings in reviewed scope"
+        elif level in ("HIGH", "CRITICAL"):
+            conclusion = "neutral"
+            title = f"⚠️ {level} AI risk — human review required"
+        elif level == "MEDIUM":
+            conclusion = "neutral"
+            title = "⚠️ MEDIUM AI risk — review suggested"
         else:
             conclusion = "neutral"
-        findings = report.get("findings", [])[:10]
+            title = "❔ Incomplete or unknown risk — review required"
+
         details = "\n".join(
             f"- **{x.get('severity','?')} / {x.get('status','SUSPECTED')}** "
             f"`{x.get('file','')}`: {x.get('reason','')}" for x in findings
         )
+        impacted = ", ".join(f"`{p}`" for p in (report.get("dependent_files") or [])[:12])
+        touched = ", ".join(f"`{p}`" for p in (report.get("important_touched_files") or [])[:12])
+        checks = report.get("verification") or {}
+        tests = report.get("tests") or {}
         summary = (
-            f"**Risk:** {level}\n\n"
-            f"{report.get('summary','')}\n\n"
-            f"**Merge advice:** {report.get('merge_recommendation','UNDETERMINED')}\n\n"
-            f"**Tests:** Not run by this MVP\n\n"
-            f"**Findings:**\n{details or 'No specific findings'}\n\n"
-            "AI suggestions are not proof of correctness or failure."
+            f"**Risk badge:** {level}\\n\\n"
+            f"**Merge advice:** {report.get('merge_recommendation','UNDETERMINED')}\\n\\n"
+            f"**AI summary:** {report.get('summary','')}\\n\\n"
+            f"**Core modules changed:** {touched or 'None identified in sampled map'}\\n\\n"
+            f"**Potential dependent modules:** {impacted or 'None identified in sampled graph'}\\n\\n"
+            f"**Python syntax checked:** {checks.get('python_files_checked',0)} files "
+            f"({checks.get('syntax_errors',0)} syntax errors); "
+            f"**Runtime/unit tests:** {tests.get('status','NOT_RUN')}\\n\\n"
+            f"**Diff coverage:** {'complete' if coverage.get('diff_complete') else 'partial/unknown'}\\n\\n"
+            f"**Findings:**\\n{details or 'No specific findings in reviewed scope'}\\n\\n"
+            "AI findings are suspected until independently verified. "
+            "Even a successful check does not prove the code correct or safe."
         )[:60000]
+        annotations = []
+        for finding in verified[:40]:
+            line = finding.get("line")
+            path = finding.get("file")
+            if not isinstance(line, int) or line < 1 or not isinstance(path, str):
+                continue
+            annotations.append({
+                "path": path, "start_line": line, "end_line": line,
+                "annotation_level": "failure" if finding.get("severity") in ("HIGH", "CRITICAL") else "warning",
+                "title": "Verified Python syntax error",
+                "message": str(finding.get("reason") or "Python parser error")[:500],
+            })
         return self.request(
             "PATCH", f"/repos/{owner}/{repo}/check-runs/{check_id}", token,
             json={
                 "status": "completed", "conclusion": conclusion,
-                "output": {"title": f"RepoGuard risk: {level}", "summary": summary},
+                "output": {"title": title, "summary": summary, "annotations": annotations},
             }
         )
 
