@@ -194,6 +194,10 @@ def dashboard(repository: str) -> dict:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise HTTPException(status_code=400, detail="Expected owner/repo")
     owner, repo = repository.split("/", 1)
+    try:
+        validate_repo(owner, repo)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid owner/repo") from exc
     info = _metadata(owner, repo)
     canonical = info["full_name"]
     repo_map = storage.get_map(canonical)
