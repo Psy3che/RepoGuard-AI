@@ -171,6 +171,14 @@ function Overview({ data, goToReview, goToArchitecture, goToReviews }: { data: D
       <button className="metric-card" onClick={goToReviews}><div className="metric-top"><span className="metric-icon blue"><GitPullRequest size={20}/></span><span className="metric-trend">In analysis</span></div><div className="metric-value">{reviews.length.toString().padStart(2, "0")}</div><div className="metric-title">Pull requests tracked</div><div className="metric-sub">{highCount} require close attention</div></button>
       <button className="metric-card" onClick={goToArchitecture}><div className="metric-top"><span className="metric-icon green"><Network size={20}/></span><span className="metric-trend">Dependency map</span></div><div className="metric-value">{dependencies.length.toString().padStart(2, "0")}</div><div className="metric-title">Mapped dependencies</div><div className="metric-sub">Observed architecture links</div></button>
     </div>
+    {repository.architecture_summary && <section className="panel ai-architecture-panel">
+      <div className="panel-titlebar"><div><span className="eyebrow">DEEPSEEK ARCHITECTURE ANALYSIS</span><h3>How this repository works</h3></div><Sparkles size={18}/></div>
+      <p>{repository.architecture_summary}</p>
+      {Boolean(repository.architecture_notes?.length) && <div className="ai-architecture-notes">
+        {repository.architecture_notes?.map((note, index) => <div key={index}><CircleDot size={13}/><span>{note}</span></div>)}
+      </div>}
+      <small>AI-generated summary based on sampled code; verify against the actual implementation.</small>
+    </section>}
     <div className="overview-grid">
       <section className="panel recent-panel"><div className="panel-titlebar"><div><span className="eyebrow">CHANGE MONITOR</span><h3>Recent pull requests</h3></div><button className="text-link" onClick={goToReviews}>View all <ArrowRight size={14}/></button></div><div className="recent-list">{latest.slice(0, 4).map((r) => <ReviewRow review={r} key={r.id} onClick={() => goToReview(r.id)} />)}</div></section>
       <section className="panel critical-panel"><div className="panel-titlebar"><div><span className="eyebrow">PROTECTION MAP</span><h3>Critical components</h3></div><button className="icon-button subtle" onClick={goToArchitecture} title="Open dependency map" aria-label="Open dependency map"><ArrowUpRight size={17}/></button></div><div className="critical-list">{important.map((m, i) => <button className="critical-item" onClick={goToArchitecture} key={m.id}><span className="critical-number">0{i + 1}</span><span className="critical-item-main"><strong>{m.name}</strong><small>{m.path}</small></span><RiskTag risk={m.importance} compact/></button>)}</div><div className="critical-footer"><ShieldCheck size={15} /> Criticality is a recommendation, not a proof of defect.</div></section>
