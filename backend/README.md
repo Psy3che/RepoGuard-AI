@@ -145,6 +145,26 @@ curl -H "Authorization: Bearer YOUR_DASHBOARD_TOKEN" \
 
 **重要限制：** API 仍使用单一管理员 Token，没有面向多用户的 OAuth 授权控制，因此仅可在本地开发环境中使用。仓库分析只抽样部分代码及显式导入关系，不能代替全面静态分析、测试和安全审计。模型调用失败时任务状态为 FAILED，不展示假的 AI 结果。扫描需要有效的 DeepSeek API Key；当前 PR 分析功能保留。
 
+### DeepSeek JSON 模式错误排查（ValueError）
+
+当 `Repository scan failed: DeepSeek architecture analysis unavailable (ValueError)`
+出现时，说明模型请求处理阶段失败，通常不是 GitHub 安装权限问题。DeepSeek
+JSON 模式有时会返回全空格，或因输出 `max_tokens` 不足而截断。
+现在后端会为不完整 JSON **最多重试一次**，输出额度依次为 3200、5500；
+失败时只展示不含原始模型内容和密钥的原因代码：
+
+- `json_truncated_at_token_limit`：生成达到输出长度限制
+- `empty_json_response`：响应为空或只有空白字符
+- `invalid_json_response`：返回文本不是合法 JSON
+- `invalid_http_json_response`：HTTP 响应体不是有效 JSON
+- `json_not_an_object`：模型没有返回对象
+- `output_filtered`：响应被服务端过滤（不自动重试）
+
+下载最新代码，**重启后端**，再点击 `Analyze Repository` 重新分析。
+旧任务的错误状态不会自动改变。仓库扫描仍需先获得有效 JSON 才会将仓库地图
+标记为完成，不会使用模拟结果代替真实 DeepSeek 调用。重试可能产生额外 API
+费用；仅对模型输出解析问题重试，不会对无效密钥等 HTTP 错误重试。
+
 ## 5. Pull Request 合并风险评估（自动 + 手动）
 
 **自动触发：** GitHub App 勾选 `Pull requests` Webhook 事件并配置可访问
