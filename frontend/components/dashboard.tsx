@@ -571,7 +571,7 @@ export function Dashboard() {
             setSelectedReviewId(reviewToast.id); setView("reviews"); setReviewToast(null);
           }}>View review</button>
           <button aria-label="Dismiss notification" type="button" onClick={() => setReviewToast(null)}><X size={17}/></button>
-        </div>
+        </div>}
         {scanning && <div className="scan-progress" role="status"><RefreshCw size={17} className="spinning"/> Analyzing {selectedRepository}: indexing code and generating an AI architecture map...</div>}
         {scanError && <div className="scan-error" role="alert"><AlertTriangle size={17}/> Repository scan failed: {scanError}</div>}
         {fetchState.status === "error" && <div className="load-error"><AlertOctagon size={25}/><div><strong>Backend connection failed</strong><p>{fetchState.message}</p><p>Check your repository permissions, FastAPI endpoints and REPOGUARD_API_BASE_URL.</p></div><button className="secondary-button" onClick={() => selectedRepository ? void load(selectedRepository) : void loadRepositories()}>Retry <RefreshCw size={15}/></button></div>}
