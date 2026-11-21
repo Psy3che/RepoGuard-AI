@@ -12,6 +12,7 @@ from backend.config import settings
 from backend.security import verify_signature
 from backend import storage
 from backend.service import process_pr
+from backend.dashboard_adapter import dashboard as build_dashboard, installed_repositories
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("repoguard")
@@ -106,3 +107,15 @@ def repository_map(owner: str, repo: str):
     if result is None:
         raise HTTPException(status_code=404, detail="Repo scan not found; create a PR first")
     return result
+
+
+@app.get("/api/dashboard", dependencies=[Depends(dashboard_auth)])
+def dashboard_view(repository: str = Query(..., min_length=3, max_length=201)):
+    """Exact Next.js dashboard contract, repository-scoped and App-installation checked."""
+    return build_dashboard(repository)
+
+
+@app.get("/api/repositories", dependencies=[Depends(dashboard_auth)])
+def installed_repository_list():
+    """Single-operator/admin access only; no per-user OAuth sessions in MVP."""
+    return installed_repositories()
