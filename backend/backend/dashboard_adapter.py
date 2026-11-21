@@ -140,12 +140,17 @@ def _review(row: dict, ids: dict[str, str]) -> dict:
     advice = report.get("merge_recommendation", "UNDETERMINED")
     if advice not in APPROVALS:
         advice = "UNDETERMINED"
-    merge_decision = {
+    verified_blocker = any(
+        isinstance(x, dict) and x.get("status") == "VERIFIED" and
+        x.get("severity") in ("HIGH", "CRITICAL")
+        for x in (report.get("findings") or [])
+    )
+    merge_decision = ("BLOCK" if verified_blocker else {
         "NO_BLOCKING_FINDINGS": "PASS",
         "REVIEW_SUGGESTED": "REVIEW_REQUIRED",
         "REVIEW_REQUIRED": "REVIEW_REQUIRED",
         "UNDETERMINED": "UNKNOWN",
-    }[advice] if row["status"] == "COMPLETED" else "UNKNOWN"
+    }[advice]) if row["status"] == "COMPLETED" else "UNKNOWN"
     findings = []
     for i, finding in enumerate(report.get("findings") or []):
         if not isinstance(finding, dict):
@@ -155,9 +160,9 @@ def _review(row: dict, ids: dict[str, str]) -> dict:
         findings.append({
             "id": f"{row['id']}-finding-{i+1}",
             "file": str(finding.get("file") or ""),
-            "line": None,
+            "line": finding.get("line") if isinstance(finding.get("line"), int) and finding["line"] > 0 else None,
             "severity": severity if severity in LEVELS else "UNKNOWN",
-            "status": "SUSPECTED",  # no deterministic verification in MVP
+            "status": "VERIFIED" if finding.get("status") == "VERIFIED" else "SUSPECTED",
             "title": reason[:110],
             "explanation": reason,
             "recommendation": str(finding.get("recommendation") or ""),
@@ -176,6 +181,11 @@ def _review(row: dict, ids: dict[str, str]) -> dict:
         "updated_at": row.get("updated_at") or row.get("created_at") or "",
         "risk_level": risk,
         "merge_decision": merge_decision,
+        "review_status": row["status"],
+        "head_sha": row.get("head_sha") or "",
+        "dependent_files": (report.get("dependent_files") or [])[:30],
+        "important_touched_files": (report.get("important_touched_files") or [])[:20],
+        "verification": report.get("verification") or {},
         "summary": report.get("summary") or (
             "Analysis running" if row["status"] in ("PENDING", "RUNNING") else
             "No completed report. Review status: " + row["status"]
