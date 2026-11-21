@@ -23,11 +23,18 @@ export async function GET(request: NextRequest) {
 
   // Production path: backend uses the current authenticated user's GitHub App installations.
   // Do not put GitHub tokens or App private keys in this frontend or browser.
+  if (base && process.env.NODE_ENV !== "development") {
+    return NextResponse.json({ error: "Live backend proxy requires end-user authentication before public deployment." }, { status: 503 });
+  }
+  const dashboardToken = process.env.REPOGUARD_DASHBOARD_TOKEN;
+  if (base && !dashboardToken) {
+    return NextResponse.json({ error: "Missing REPOGUARD_DASHBOARD_TOKEN in frontend/.env.local" }, { status: 503 });
+  }
   if (base) {
     try {
       const res = await fetch(`${base}/api/repositories`, {
         cache: "no-store", signal: AbortSignal.timeout(12000),
-        headers: { Accept: "application/json" },
+        headers: { Accept: "application/json", Authorization: `Bearer ${dashboardToken}` },
       });
       if (!res.ok) return NextResponse.json({ error: `Repository API returned HTTP ${res.status}` }, { status: 502 });
       const result = (await res.json()) as RepositoryListResponse;

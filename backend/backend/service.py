@@ -4,6 +4,7 @@ from backend import storage
 from backend.github_api import GitHubApi
 from backend.analyzer import build_repo_map, analyze_pr
 from backend.config import settings
+from backend.security import safe_source_path, scrub_text
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +34,21 @@ def process_pr(review_id: str, payload: dict):
             storage.save_map(repo_key, base_sha, repo_map)
         files = api.pull_files(owner, repo_name, int(pr["number"]), token, settings.max_pr_files)
         report = analyze_pr(repo_map, files, expected_files=pr.get("changed_files"))
+        # Capture PR metadata for the existing Next.js dashboard. Never store raw
+        # unrestricted source or secret/config patches in the report database.
+        first_patch = next((
+            f for f in files
+            if safe_source_path(f.get("filename", "")) and isinstance(f.get("patch"), str)
+        ), None)
+        report["review_context"] = {
+            "title": str(pr.get("title") or "")[:180],
+            "author": str((pr.get("user") or {}).get("login") or "")[:80],
+            "branch": str((pr.get("head") or {}).get("ref") or "")[:180],
+            "additions": int(pr.get("additions") or 0),
+            "deletions": int(pr.get("deletions") or 0),
+            "diff_path": first_patch["filename"] if first_patch else "",
+            "diff_patch": scrub_text(first_patch["patch"][:12000]) if first_patch else "",
+        }
         report["pr_number"] = int(pr["number"])
         report["head_sha"] = pr["head"]["sha"]
         report["review_id"] = review_id

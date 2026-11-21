@@ -14,7 +14,7 @@ COMMIT = re.compile(r"^[a-fA-F0-9]{40}$")
 
 
 def validate_repo(owner: str, repo: str):
-    if not REPO_NAME.fullmatch(owner) or not REPO_NAME.fullmatch(repo):
+    if owner in (".", "..") or repo in (".", "..") or not REPO_NAME.fullmatch(owner) or not REPO_NAME.fullmatch(repo):
         raise ValueError("Invalid owner or repo name")
 
 
