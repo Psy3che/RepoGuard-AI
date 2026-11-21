@@ -73,6 +73,20 @@ export interface PullRequestReview {
     syntax_errors?: number;
     tests_executed?: boolean;
   };
+  ai_review?: {
+    provider?: string;
+    model?: string;
+    status?: "COMPLETED";
+    model_risk_level?: RiskLevel;
+    final_risk_level?: RiskLevel;
+    adjustments?: string[];
+    verification_note?: string;
+  };
+  review_coverage?: {
+    diff_complete?: boolean;
+    semantic_coverage?: string;
+    note?: string;
+  };
   summary: string;
   files_changed: number;
   additions: number;
