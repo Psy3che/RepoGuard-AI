@@ -126,7 +126,7 @@ export function RiskReviewModal({ repository, number, review, sample, onClose, o
           <div className="risk-modal-section-heading"><Sparkles size={18}/> AI ANALYSIS SUMMARY</div>
           <p>{summary}</p>
         </section>
-        {!working && !failed && <section className="risk-modal-ai-proof" aria-label="AI verdict provenance">
+        {!sample && !working && !failed && <section className="risk-modal-ai-proof" aria-label="AI verdict provenance">
           <div className="risk-modal-section-heading"><Sparkles size={18}/> MODEL VERDICT & COVERAGE</div>
           {hasDeepSeekResult ? <>
             <div className="risk-modal-ai-proof-row">
